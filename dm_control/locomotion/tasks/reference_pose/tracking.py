@@ -158,6 +158,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     self._current_clip_index = 0
     self._end_mocap = False
     self._should_truncate = False
+    self._custom_init = False
 
     # Set up required dummy quantities for observations
     self._clip_reference_features = self._current_clip.as_dict()
@@ -277,7 +278,10 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     index = random_state.choice(
         len(self._possible_starts), p=self._start_probabilities)
     clip_index, start_step = self._possible_starts[index]
+    self._set_clip_to_track(clip_index, start_step)
 
+  def _set_clip_to_track(self, clip_index, start_step):
+    """Start tracking a particular clip at a particular time. """
     self._current_clip_index = clip_index
     clip_id = self._dataset.ids[self._current_clip_index]
 
@@ -306,14 +310,28 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     logging.info('Mocap %s at step %d with remaining length %d.', clip_id,
                  start_step, self._last_step - start_step)
 
+  def set_custom_init(self,   
+                      clip_index: int,
+                      start_step: int,
+                      physics_state: 'return of physics.get_state()'):
+    """ Sets custom set initialization parameters, which take effect upon next reset(). """
+    self._custom_clip_index = clip_index
+    self._custom_start_step = start_step
+    self._custom_physics_state = physics_state
+    self._custom_init = True
+
   def initialize_episode(self, physics: 'mjcf.Physics',
                          random_state: np.random.RandomState):
-    """Randomly selects a starting point and set the walker."""
+    if self._custom_init:
+      self._set_clip_to_track(self._custom_clip_index, self._custom_start_step)
+      physics.set_state(self._custom_physics_state)
+      # utils.set_walker_from_features(physics, self._walker, self._custom_init_features)
+      mjlib.mj_kinematics(physics.model.ptr, physics.data.ptr)
+    else:
+      self._get_clip_to_track(random_state)
+      # Set the walker at the beginning of the clip.
+      self._set_walker(physics)
 
-    self._get_clip_to_track(random_state)
-
-    # Set the walker at the beginning of the clip.
-    self._set_walker(physics)
     self._walker_features = utils.get_features(physics, self._walker)
     self._walker_features_prev = utils.get_features(physics, self._walker)
 
@@ -323,7 +341,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     self._compute_termination_error()
     # assert error is 0 at initialization. In particular this will prevent
     # a proto/walker mismatch.
-    if self._termination_error > 1e-2:
+    if self._termination_error > 1e-2 and not self._custom_init:
       raise ValueError(('The termination exceeds 1e-2 at initialization. '
                         'This is likely due to a proto/walker mismatch.'))
 
@@ -331,6 +349,32 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
 
     # reset reward channels
     self._reset_reward_channels()
+
+  # def initialize_episode(self, physics: 'mjcf.Physics',
+  #                        random_state: np.random.RandomState):
+  #   """Randomly selects a starting point and set the walker."""
+
+  #   self._get_clip_to_track(random_state)
+
+  #   # Set the walker at the beginning of the clip.
+  #   self._set_walker(physics)
+  #   self._walker_features = utils.get_features(physics, self._walker)
+  #   self._walker_features_prev = utils.get_features(physics, self._walker)
+
+  #   self._walker_joints = np.array(physics.bind(self._walker.mocap_joints).qpos)  # pytype: disable=attribute-error
+
+  #   # compute initial error
+  #   self._compute_termination_error()
+  #   # assert error is 0 at initialization. In particular this will prevent
+  #   # a proto/walker mismatch.
+  #   if self._termination_error > 1e-2:
+  #     raise ValueError(('The termination exceeds 1e-2 at initialization. '
+  #                       'This is likely due to a proto/walker mismatch.'))
+
+  #   self._update_ghost(physics)
+
+  #   # reset reward channels
+  #   self._reset_reward_channels()
 
   def _reset_reward_channels(self):
     if self._reward_keys:
@@ -540,6 +584,11 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
                                            self._clip_reference_features)
     utils.set_walker_from_features(physics, self._walker, timestep_features)
     mjlib.mj_kinematics(physics.model.ptr, physics.data.ptr)
+
+  def get_reference_features(self):
+    """ Returns the reference features from the current timestep. """
+    return tree.map_structure(lambda x: x[self._time_step],
+                              self._clip_reference_features)
 
   def _update_ghost(self, physics: 'mjcf.Physics'):
     if self._ghost_offset is not None:
