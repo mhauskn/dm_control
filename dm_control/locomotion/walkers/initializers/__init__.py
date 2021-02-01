@@ -62,4 +62,10 @@ class NoOpInitializer(WalkerInitializer):
     pass
 
 
+class ProneInitializer(WalkerInitializer):
+  """An initializer that positions the walker into a lying-down position."""
 
+  def initialize_pose(self, physics, walker, random_state):
+    xpos = (.15, -.45, .1) # Position right shoulder at origin
+    xquat = (0, 0, 0, 0)
+    walker.set_pose(physics, position=xpos, quaternion=xquat)

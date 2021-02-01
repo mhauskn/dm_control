@@ -107,7 +107,20 @@ class TwoTouch(composer.Task):
     def task_state(physics):
       del physics
       return np.array([self._state_logic])
+
+    # Computes the relative position between the right hand and the target.
+    def target_rel_pos(physics):
+      if len(self._targets) > 0:
+        rhand_pos = physics.bind(self._rhand_body).xpos
+        target_pos = physics.bind(self._targets[0][0].geom).xpos
+        del physics
+        return rhand_pos-target_pos
+      else:
+        del physics
+        return np.zeros(3)
+
     self._task_observables['task_logic'] = dm_observable.Generic(task_state)
+    self._task_observables['target_rel_pos'] = dm_observable.Generic(target_rel_pos)
 
     self._walker.observables.egocentric_camera.height = 64
     self._walker.observables.egocentric_camera.width = 64
