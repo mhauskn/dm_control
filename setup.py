@@ -33,7 +33,7 @@ PLATFORM_SUFFIXES = {
     'Windows': 'win64',
     'Darwin': 'macos',
 }
-DEFAULT_HEADERS_DIR = '~/.mujoco/mujoco200_{}/include'.format(
+DEFAULT_HEADERS_DIR = '~/.mujoco/mujoco200_{}'.format(
     PLATFORM_SUFFIXES[platform.system()])
 
 # Relative paths to the binding generator script and the output directory.
@@ -58,7 +58,8 @@ def _initialize_mjbindings_options(cmd_instance):
   """Set default values for options relating to `build_mjbindings`."""
   # A default value must be assigned to each user option here.
   cmd_instance.inplace = 0
-  cmd_instance.headers_dir = DEFAULT_HEADERS_DIR
+  cmd_instance.headers_dir = os.path.join(
+    os.environ.get('MUJOCO_PATH', DEFAULT_HEADERS_DIR), 'include')
 
 
 def _finalize_mjbindings_options(cmd_instance):
