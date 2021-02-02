@@ -35,6 +35,7 @@ H5_FILENAME = 'cmu_2020_dfe3e9e0.h5'
 H5_PATHS = (
     os.path.join(os.path.dirname(__file__), H5_FILENAME),
     os.path.join('~/.dm_control', H5_FILENAME),
+    os.path.join(os.environ.get('CMU_MOCAP_DIR', '.'), H5_FILENAME),
 )
 H5_URL = 'https://storage.googleapis.com/dm_control/cmu_2020_dfe3e9e0.h5'
 
