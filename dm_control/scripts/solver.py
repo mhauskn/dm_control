@@ -24,8 +24,11 @@ from dm_control import viewer
 import matplotlib.pyplot as plt
 from tqdm import trange
 from scipy import optimize
+import multiprocessing
 
 mjlib = mjbindings.mjlib
+
+OUTPUT_DIR = os.environ.get('PT_OUTPUT_DIR', '.')
 
 def get_initial_trajectory(env, max_steps):
     """ Returns an initial trajectory based on target reference poses. """
@@ -55,23 +58,37 @@ def get_initial_trajectory(env, max_steps):
     return np.array(actions), physics_states, J
 
 def evaluate(env, actions):
+    """ Resets the environment and executes the provided actions. """
     J = 0
-    time_step = env.reset()
-    for step in range(actions.shape[0]):
-        ref_feats = utils.get_features(env.physics, env.task._walker)
-        act = actions[step]
+    env.reset()
+    for act in actions:
         time_step = env.step(act)
         J += time_step.reward
         if time_step.last():
             break
-    return -J
+    return J
 
-def optimize_clip_segment(env, start_step, init_physics_state, actions):
+def evaluate_with_physics_states(env, actions):
+    """ Resets the environment and executes the provided actions. """
+    J = 0
+    env.reset()
+    physics_states = []
+    for act in actions:
+        physics_states.append(env._physics.get_state().copy())
+        time_step = env.step(act)
+        J += time_step.reward
+        if time_step.last():
+            break
+    return J, physics_states
+
+def optimize_clip_segment(start_step, init_physics_state, actions):
+    env = build_env()
     env.task.set_custom_init(0, start_step, init_physics_state)    
     # print('Initial Val:', evaluate(env, actions))
+    # return actions
     x0 = actions.flatten()
     res = optimize.minimize(
-        lambda x: evaluate(env, x.reshape(actions.shape)), 
+        lambda x: -evaluate(env, x.reshape(actions.shape)), 
         x0, 
         method='powell',
         bounds=optimize.Bounds(lb=-np.ones_like(x0), ub=np.ones_like(x0)),
@@ -81,11 +98,11 @@ def optimize_clip_segment(env, start_step, init_physics_state, actions):
         }
     )
     opt_actions = res.x.reshape(actions.shape)
-    final_perf = res.fun #evaluate(env, opt_actions)
-    final_state = env._physics.get_state().copy()
-    return opt_actions, final_state, final_perf
+    # final_perf = res.fun #evaluate(env, opt_actions)
+    # final_state = env._physics.get_state().copy()
+    return opt_actions
 
-def main():    
+def build_env():
     walker = cmu_humanoid.CMUHumanoidPositionControlledV2020
     arena = floors.Floor()
     task = tracking.MultiClipMocapTracking(
@@ -105,12 +122,17 @@ def main():
                                 task=task,
                                 random_state=None,
                                 strip_singleton_obs_buffer_dim=True)
+    return env
 
-    spec = env.action_spec()
+def main():    
+    STEPS = 32
+    SEGMENT_SIZE = 4
+    OPT_ITERS = 4
 
-    steps = 8
-    actions, physics_states, J = get_initial_trajectory(env, max_steps=steps)
-    print('Initial Trajectory Error', -J)
+    env = build_env()
+    actions, physics_states, J = get_initial_trajectory(env, max_steps=STEPS)
+    print('Initial Trajectory Return:', J)
+
     # newJ = 0
     # for ts in range(steps):
     #     env.task.set_custom_init(0, ts, physics_states[ts])
@@ -118,21 +140,62 @@ def main():
     # print(J, newJ)
     # opt_act, final_state, J = optimize_clip_segment(env, 0, physics_states[0], actions)
     # print('Final error', J)
-    seg_size = 4
-    for iteration in range(1):
-        new_states = []
-        total_err = 0
-        for ts in range(steps//seg_size):
-            #act = np.expand_dims(actions[ts], axis=0)
-            act = actions[seg_size*ts: seg_size*(ts+1)]
-            opt_act, final_state, J = optimize_clip_segment(env, seg_size*ts, physics_states[ts], act)
-            actions[seg_size*ts: seg_size*(ts + 1)] = opt_act
-            new_states.append(final_state)
-            total_err += J
-            print('Step {} optimized to {}'.format(ts, J))
-        print('Iteration {} ended with total error {}'.format(iteration, total_err))
-        physics_states[1:] = new_states[:-1]
+
+    # Single Threaded Version
+    # for iteration in range(1):
+    #     new_states = []
+    #     total_err = 0
+    #     for ts in range(steps//SEGMENT_SIZE):
+    #         #act = np.expand_dims(actions[ts], axis=0)
+    #         act = actions[SEGMENT_SIZE*ts: SEGMENT_SIZE*(ts+1)]
+    #         opt_act, final_state, J = optimize_clip_segment(env, SEGMENT_SIZE*ts, physics_states[ts], act)
+    #         actions[SEGMENT_SIZE*ts: SEGMENT_SIZE*(ts + 1)] = opt_act
+    #         new_states.append(final_state)
+    #         total_err += J
+    #         print('Step {} optimized to {}'.format(ts, J))
+    #     print('Iteration {} ended with total error {}'.format(iteration, total_err))
+    #     physics_states[1:] = new_states[:-1]
+
+    # Multithreaded Version
+    print('Detected {} cpus.'.format(multiprocessing.cpu_count()))
+    optimized_actions = actions
+    for iteration in range(OPT_ITERS):
+        args_list = []
+        for ts in range(STEPS // SEGMENT_SIZE):
+            start_step = SEGMENT_SIZE * ts
+            start_state = physics_states[ts]
+            actions_segment = optimized_actions[SEGMENT_SIZE*ts: SEGMENT_SIZE*(ts+1)]
+            args_list.append((start_step, start_state, actions_segment))
+            
+        num_workers = len(args_list)
+        with multiprocessing.Pool(processes=num_workers) as pool:
+            outputs = pool.starmap(optimize_clip_segment, args_list)
+            optimized_actions = np.concatenate(outputs)
+            
+        J, physics_states = evaluate_with_physics_states(env, optimized_actions)
+        print('Iteration {} Return: {}'.format(iteration, J))
+
+    np.save(os.path.join(OUTPUT_DIR, 'optimized_actions.npy'), actions)
+
+
+def visualize_trajectory(actions):
+    env = build_env()
+    print(evaluate(env, actions))
+
+    def policy(time_step):
+        global step
+        if time_step.first():
+            step = 0
+        else:
+            step += 1
+        if step < len(actions):
+            return actions[step]
+        else:
+            return np.zeros_like(actions[0])
+
+    viewer.launch(env, policy=policy)
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    visualize_trajectory(np.load('pt/exp1/simple_job/optimized_actions.npy'))

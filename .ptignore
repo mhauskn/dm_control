@@ -1,0 +1,6 @@
+.git
+dm_control/viewer/policy.gif
+dm_control/third_party/kinova
+dm_control/locomotion/arenas/assets/outdoor_natural/OutdoorSkybox2048.png
+*.png
+*.skn
