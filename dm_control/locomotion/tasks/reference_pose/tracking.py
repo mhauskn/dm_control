@@ -310,14 +310,11 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     logging.info('Mocap %s at step %d with remaining length %d.', clip_id,
                  start_step, self._last_step - start_step)
 
-  def set_custom_init(self,   
-                      clip_index: int,
-                      start_step: int,
-                      physics_state: 'return of physics.get_state()'):
+  def set_custom_init(self, custom_init: 'NamedTuple'):
     """ Sets custom set initialization parameters, which take effect upon next reset(). """
-    self._custom_clip_index = clip_index
-    self._custom_start_step = start_step
-    self._custom_physics_state = physics_state
+    self._custom_clip_index = custom_init.clip_index
+    self._custom_start_step = custom_init.start_step
+    self._custom_physics_state = custom_init.physics_state
     self._custom_init = True
 
   def initialize_episode(self, physics: 'mjcf.Physics',
@@ -350,32 +347,6 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     # reset reward channels
     self._reset_reward_channels()
 
-  # def initialize_episode(self, physics: 'mjcf.Physics',
-  #                        random_state: np.random.RandomState):
-  #   """Randomly selects a starting point and set the walker."""
-
-  #   self._get_clip_to_track(random_state)
-
-  #   # Set the walker at the beginning of the clip.
-  #   self._set_walker(physics)
-  #   self._walker_features = utils.get_features(physics, self._walker)
-  #   self._walker_features_prev = utils.get_features(physics, self._walker)
-
-  #   self._walker_joints = np.array(physics.bind(self._walker.mocap_joints).qpos)  # pytype: disable=attribute-error
-
-  #   # compute initial error
-  #   self._compute_termination_error()
-  #   # assert error is 0 at initialization. In particular this will prevent
-  #   # a proto/walker mismatch.
-  #   if self._termination_error > 1e-2:
-  #     raise ValueError(('The termination exceeds 1e-2 at initialization. '
-  #                       'This is likely due to a proto/walker mismatch.'))
-
-  #   self._update_ghost(physics)
-
-  #   # reset reward channels
-  #   self._reset_reward_channels()
-
   def _reset_reward_channels(self):
     if self._reward_keys:
       self.last_reward_channels = collections.OrderedDict([
@@ -387,11 +358,13 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
   def _compute_termination_error(self):
     target_joints = self._clip_reference_features['joints'][self._time_step]
     error_joints = np.mean(np.abs(target_joints - self._walker_joints))
+    self._joint_error = error_joints # Just for debugging
     target_bodies = self._clip_reference_features['body_positions'][
         self._time_step]
     error_bodies = np.mean(
         np.abs((target_bodies -
                 self._walker_features['body_positions'])[self._body_idxs]))
+    self._bodies_error = error_bodies # Just for debugging
     self._termination_error = (
         0.5 * self._body_error_multiplier * error_bodies + 0.5 * error_joints)
 
