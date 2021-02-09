@@ -152,10 +152,21 @@ def comic_reward_fn(termination_error, termination_error_threshold,
       reward_terms=sort_dict(reward_terms))
 
 
+def com_reward_fn(termination_error, termination_error_threshold,
+                  walker_features, reference_features, **unused_kwargs):
+  """ A cost function that only uses center of mass. """
+  differences = compute_squared_differences(walker_features, reference_features)
+  return RewardFnOutput(
+      reward=differences['center_of_mass'], 
+      debug=differences, 
+      reward_terms=None)
+
+
 _REWARD_FN = {
     'termination_reward': termination_reward_fn,
     'multi_term_pose_reward': multi_term_pose_reward_fn,
     'comic': comic_reward_fn,
+    'com': com_reward_fn,
 }
 
 _REWARD_CHANNELS = {
@@ -164,6 +175,7 @@ _REWARD_CHANNELS = {
         ('appendages', 'body_quaternions', 'center_of_mass', 'joints_velocity'),
     'comic': ('appendages', 'body_quaternions', 'center_of_mass', 'termination',
               'joints_velocity'),
+    'com': ('center_of_mass'),
 }
 
 

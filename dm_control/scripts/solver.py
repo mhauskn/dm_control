@@ -38,6 +38,9 @@ CustomInit = namedtuple('CustomInit', ['clip_index', 'start_step', 'physics_stat
 
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("additional_segs", 0, "Additional trajectory segments to add.")
+flags.DEFINE_string("reward_type", "com", "Name of reward function.")
+flags.DEFINE_integer("seg_size", 8, "Size of segments to optimize.")
+
 
 def get_trajectory_guess(env, custom_init):
     """ Returns an trajectory based on the provided actions and target reference poses. """
@@ -89,12 +92,12 @@ def evaluate_with_physics_states(env, actions, custom_init):
             break
     return J, physics_states
 
-# def optimize_clip_segment(actions, custom_init):
+# def optimize_clip_segment(env, actions, custom_init, additional_actions=None):
 #     start_step = custom_init.start_step
 #     print('Optimized Actions {}-{}'.format(start_step, start_step+len(actions)))
 #     return actions
 
-def optimize_clip_segment(actions, custom_init, additional_actions=None):
+def optimize_clip_segment(env, actions, custom_init, additional_actions=None):
     """ Optimizes the provided actions.
 
     Args:
@@ -106,15 +109,16 @@ def optimize_clip_segment(actions, custom_init, additional_actions=None):
     Returns:
         Numpy ndarray of optimized actions.
     """
-    env = build_env()
-    J_init = evaluate(env, np.concatenate((actions, additional_actions)), custom_init)
+    full_actions = np.concatenate((actions, additional_actions)) \
+        if additional_actions is not None else actions
+    J_init = evaluate(env, full_actions, custom_init)
     x0 = actions.flatten()
     if additional_actions is not None:
-        fun = lambda x: -evaluate(env, 
+        fun = lambda x: evaluate(env, 
                                   np.concatenate((x.reshape(actions.shape), additional_actions)), 
                                   custom_init)
     else:
-        fun = lambda x: -evaluate(env, x.reshape(actions.shape), custom_init)
+        fun = lambda x: evaluate(env, x.reshape(actions.shape), custom_init)
 
     res = optimize.minimize(
         fun,
@@ -127,12 +131,12 @@ def optimize_clip_segment(actions, custom_init, additional_actions=None):
         }
     )
     opt_actions = res.x.reshape(actions.shape)
-    J_fin = -res.fun
+    J_fin = res.fun
     print('Optimized Actions {}-{}. Jini={:.3f} Jfin={:.3f}'.format(
         custom_init.start_step, custom_init.start_step+len(actions), J_init, J_fin))
     return actions if J_fin < J_init else opt_actions
 
-def build_env(ghost_offset=0):
+def build_env(reward_type, ghost_offset=0):
     walker = cmu_humanoid.CMUHumanoidPositionControlledV2020
     arena = floors.Floor()
     task = tracking.MultiClipMocapTracking(
@@ -142,7 +146,7 @@ def build_env(ghost_offset=0):
         dataset=types.ClipCollection(ids=['CMU_016_22']),
         ref_steps=(1, 2, 3, 4, 5),
         min_steps=10,
-        reward_type='comic',
+        reward_type=reward_type,
         always_init_at_clip_start=True,
         termination_error_threshold=1e10,
         ghost_offset=ghost_offset,
@@ -217,6 +221,7 @@ def singlethreaded_optimize(env, actions, custom_init, seg_size, additional_segs
         add_acts = optimized_actions[ts + seg_size: ts + (additional_segs+1)*seg_size] \
             if additional_segs > 0 else None
         opt_actions = optimize_clip_segment(
+            env,
             actions=optimized_actions[ts: ts + seg_size],
             custom_init=cInit,
             additional_actions=add_acts)
@@ -231,32 +236,21 @@ def singlethreaded_optimize(env, actions, custom_init, seg_size, additional_segs
 
 def main(argv):
     start_step = 0
-    env = build_env()
+    env = build_env(reward_type=FLAGS.reward_type)
     env.reset()
     init_physics_state = env._physics.get_state().copy()
-    seg_size = 8
-
     cInit = CustomInit(0, start_step, init_physics_state)
-    actions, physics_states, J = get_trajectory_guess(env, cInit)
-    print('Initial Trajectory Guess: J={:.3f} Length={}'.format(J, len(actions)))
 
-    Jbest = J
-    for _ in range(2):
-        Jfin, optimized_actions = singlethreaded_optimize(env, actions, cInit, seg_size, FLAGS.additional_segs)
-        # Jfin, optimized_actions = multithreaded_optimize(env, actions, cInit, seg_size)
+    actions, physics_states, Jinit = get_trajectory_guess(env, cInit)
+    print('Initial Trajectory Guess: J={:.3f} Length={}'.format(Jinit, len(actions)))
 
-        if Jfin > Jbest:
-            Jbest = Jfin
-            print('Saving new high score: {:.3f}'.format(Jbest))
-            fname = 'opt_acts_steps{}-{}.npy'.format(start_step, start_step + len(actions))
-            np.save(os.path.join(OUTPUT_DIR, fname), optimized_actions)
-            actions = optimized_actions
+    Jfin, optimized_actions = singlethreaded_optimize(
+        env, actions, cInit, FLAGS.seg_size, FLAGS.additional_segs)
 
-    evaluate(env, actions, cInit)
-    init_physics_state = env._physics.get_state().copy()
-    start_step += len(actions)
+    fname = 'opt_acts_steps{}-{}.npy'.format(start_step, start_step + len(actions))
+    print('Saving actions to {}'.format(fname))
+    np.save(os.path.join(OUTPUT_DIR, fname), optimized_actions)
 
 
 if __name__ == "__main__":
     app.run(main)
-    # main()
