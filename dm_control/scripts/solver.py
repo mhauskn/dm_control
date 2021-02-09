@@ -107,7 +107,7 @@ def optimize_clip_segment(actions, custom_init, additional_actions=None):
         Numpy ndarray of optimized actions.
     """
     env = build_env()
-    J_init = evaluate(env, actions, custom_init)
+    J_init = evaluate(env, np.concatenate((actions, additional_actions)), custom_init)
     x0 = actions.flatten()
     if additional_actions is not None:
         fun = lambda x: -evaluate(env, 
