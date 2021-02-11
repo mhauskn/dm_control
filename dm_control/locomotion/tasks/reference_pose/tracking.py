@@ -307,7 +307,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
         self._current_clip_index]) * self._current_clip.dt
     self._last_step = len(
         self._clip_reference_features['joints']) - self._max_ref_step - 1
-    logging.info('Mocap %s at step %d with remaining length %d.', clip_id,
+    logging.debug('Mocap %s at step %d with remaining length %d.', clip_id,
                  start_step, self._last_step - start_step)
 
   def set_custom_init(self, custom_init: 'NamedTuple'):
@@ -383,11 +383,11 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     del physics  # physics unused by should_terminate_episode.
 
     if self._should_truncate:
-      logging.info('Truncate with error %f.', self._termination_error)
+      logging.debug('Truncate with error %f.', self._termination_error)
       return True
 
     if self._end_mocap:
-      logging.info('End of mocap.')
+      logging.debug('End of mocap.')
       return True
 
     return False
