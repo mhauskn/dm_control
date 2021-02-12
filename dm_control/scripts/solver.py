@@ -75,7 +75,7 @@ def evaluate(env, actions, custom_init):
     """ Resets the environment and executes the provided actions. """
     J = 0
     env.task.set_custom_init(custom_init)
-    env.reset()
+    env.reset_to_physics_state() # env.reset()
     for act in actions:
         time_step = env.step(act)
         J += time_step.reward
@@ -88,7 +88,7 @@ def evaluate_with_physics_states(env, actions, custom_init):
     """ Resets the environment and executes the provided actions. """
     J = 0
     env.task.set_custom_init(custom_init)
-    env.reset()
+    env.reset_to_physics_state() # env.reset()
     physics_states = []
     for act in actions:
         physics_states.append(env._physics.get_state().copy())

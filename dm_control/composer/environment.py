@@ -305,6 +305,19 @@ class Environment(_CommonEnvironment, dm_env.Environment):
     self._max_reset_attempts = max_reset_attempts
     self._reset_next_step = True
 
+  def reset_to_physics_state(self):
+    self._hooks.initialize_episode_mjcf(self._random_state)
+    # self._recompile_physics_and_update_observables()
+    with self._physics.reset_context():
+      self._hooks.initialize_episode(self._physics_proxy, self._random_state)
+    self._observation_updater.reset(self._physics_proxy, self._random_state)
+    self._reset_next_step = False
+    return dm_env.TimeStep(
+        step_type=dm_env.StepType.FIRST,
+        reward=None,
+        discount=None,
+        observation=self._observation_updater.get_observation())
+
   def reset(self):
     failed_attempts = 0
     while True:
