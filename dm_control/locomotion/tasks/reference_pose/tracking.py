@@ -149,7 +149,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     self._body_idxs = np.array(
         [walker_bodies_names.index(bdy) for bdy in walker_bodies_names])
     # Create the observables.
-    self._add_observables()
+    # self._add_observables()
 
     # initialize counters etc.
     self._time_step = 0
@@ -539,13 +539,13 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     return reference_observations
 
   def get_reward(self, physics: 'mjcf.Physics') -> float:
-    reference_observations = self.get_all_reference_observations(physics)
+    # reference_observations = self.get_all_reference_observations(physics)
     reward, unused_debug_outputs, reward_channels = self._reward_fn(
         termination_error=self._termination_error,
         termination_error_threshold=self._termination_error_threshold,
         reference_features=self._current_reference_features,
-        walker_features=self._walker_features,
-        reference_observations=reference_observations)
+        walker_features=self._walker_features)
+        # reference_observations=reference_observations)
 
     self._should_truncate = self._termination_error > self._termination_error_threshold
 
