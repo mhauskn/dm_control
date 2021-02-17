@@ -162,11 +162,57 @@ def com_reward_fn(termination_error, termination_error_threshold,
       reward_terms=None)
 
 
+def quat_reward_fn(termination_error, termination_error_threshold,
+                  walker_features, reference_features, **unused_kwargs):
+  """ A cost function that only uses quaternions. """
+  differences = compute_squared_differences(walker_features, reference_features)
+  return RewardFnOutput(
+      reward=differences['body_quaternions'], 
+      debug=differences, 
+      reward_terms=None)
+
+
+def kumquat_reward_fn(termination_error, termination_error_threshold,
+                       walker_features, reference_features, **unused_kwargs):
+  """ A cost function that uses center of mass and quaternions. """
+  differences = compute_squared_differences(walker_features, reference_features)
+  return RewardFnOutput(
+      reward=3*differences['center_of_mass'] + differences['body_quaternions'], 
+      debug=differences, 
+      reward_terms=None)
+
+
+def supreme_reward_fn(termination_error, termination_error_threshold,
+                       walker_features, reference_features, **unused_kwargs):
+  """ A cost function that uses center of mass and quaternions. """
+  differences = compute_squared_differences(walker_features, reference_features)
+  costs = [
+    1 * differences['position'],
+    0 * differences['joints'],
+    1 * differences['center_of_mass'],
+    20 * differences['end_effectors'],
+    0 * differences['appendages'],
+    0 * differences['body_positions'],
+    0 * differences['velocity'],
+    0 * differences['angular_velocity'],
+    0 * differences['joints_velocity'],
+    .5 * differences['body_quaternions'],
+    0 * differences['quaternion'],
+  ]
+  return RewardFnOutput(
+      reward=sum(costs),
+      debug=differences, 
+      reward_terms=None)
+
+
 _REWARD_FN = {
     'termination_reward': termination_reward_fn,
     'multi_term_pose_reward': multi_term_pose_reward_fn,
     'comic': comic_reward_fn,
     'com': com_reward_fn,
+    'quat': quat_reward_fn,
+    'kumquat': kumquat_reward_fn,
+    'supreme': supreme_reward_fn,
 }
 
 _REWARD_CHANNELS = {
@@ -176,6 +222,9 @@ _REWARD_CHANNELS = {
     'comic': ('appendages', 'body_quaternions', 'center_of_mass', 'termination',
               'joints_velocity'),
     'com': ('center_of_mass'),
+    'quat': ('body_quaternions'),
+    'kumquat': ('center_of_mass', 'body_quaternions'),
+    'supreme': ('center_of_mass')
 }
 
 
