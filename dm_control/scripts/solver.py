@@ -34,6 +34,8 @@ from absl import logging
 
 mjlib = mjbindings.mjlib
 
+TERMINATION_ERROR_THRESHOLD = 0.3
+
 OUTPUT_DIR = os.environ.get('PT_OUTPUT_DIR', '.')
 DATA_DIR = os.environ.get('PT_DATA_DIR', '.')
 
@@ -41,11 +43,12 @@ CustomInit = namedtuple('CustomInit', ['clip_index', 'start_step', 'physics_stat
 
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("additional_segs", 0, "Additional trajectory segments to add.")
-flags.DEFINE_string("reward_type", "com", "Name of reward function.")
+flags.DEFINE_string("reward_type", "kumquat", "Name of reward function.")
 flags.DEFINE_integer("seg_size", 8, "Size of segments to optimize.")
 flags.DEFINE_string("clip_name", "CMU_016_22", "Name of reference clip. See cmu_subsets.py")
 flags.DEFINE_string("load_actions_path", None, "Path relative to DATA_DIR to load actions from.")
-flags.DEFINE_string("save_actions_path", "opt_acts.npy", "Path relative to OUTPUT_DIR to save actions.")
+flags.DEFINE_integer("optimizer_iters", 1, "Max iterations of Scipy optimizer.")
+flags.DEFINE_integer("optimization_passes", 1, "Number of optimization passes to perform.")
 
 
 def get_trajectory_guess(env, custom_init):
@@ -98,17 +101,31 @@ def evaluate_with_physics_states(env, actions, custom_init):
             break
     return J, physics_states
 
-# def optimize_clip_segment(env, actions, custom_init, additional_actions=None):
+
+def episode_failed(env, actions, custom_init):
+    env.task.set_custom_init(custom_init)
+    env.reset_to_physics_state()
+    for act in actions:
+        time_step = env.step(act)
+        if env._task._termination_error >= TERMINATION_ERROR_THRESHOLD:
+            return True
+        if time_step.last():
+            break
+    return False
+    
+
+# def optimize_clip_segment(env, actions, custom_init, optimizer_iters, additional_actions=None):
 #     start_step = custom_init.start_step
 #     logging.info('Optimized Actions {}-{}'.format(start_step, start_step+len(actions)))
 #     return actions+.01
 
-def optimize_clip_segment(env, actions, custom_init, additional_actions=None):
+def optimize_clip_segment(env, actions, custom_init, optimizer_iters, additional_actions=None):
     """ Optimizes the provided actions.
 
     Args:
         actions: Numpy ndarray of shape (n_steps x action_dim) of actions to optimize.
         custom_init: Specifier 
+        optimizer_iters: Number of iterations of Scipy optimzier to run.
         additional_actions: (Optional) extra actions appended to the original
             actions for purposes of evaluation, but not optimized.
 
@@ -134,7 +151,7 @@ def optimize_clip_segment(env, actions, custom_init, additional_actions=None):
         bounds=optimize.Bounds(lb=-np.ones_like(x0), ub=np.ones_like(x0)),
         options={
             'disp': True,
-            'maxiter': 1,
+            'maxiter': optimizer_iters,
         }
     )
     opt_actions = res.x.reshape(actions.shape)
@@ -167,43 +184,7 @@ def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22'):
     return env
 
 
-# def multithreaded_optimize(env, actions, custom_init, seg_size):
-#     """ Optimize a sequence of actions using parallel multiprocessing.
-    
-#     Args:
-#         env: the environment.
-#         actions: ndarray of (n_steps x action_dim) of actions to optimize.
-#         start_step: offset from beginning of clip to start optimizing.
-#         init_physics_state: mujoco physics state associated with clip[start_step].
-#         seg_size: optimize segments of size seg_size.
-
-#     Returns:
-#         The return J of the optimized sequences and the optimized actions.
-#     """
-#     num_workers = math.ceil(len(actions) / seg_size)
-#     optimized_actions = actions
-    
-#     Jini, physics_states = evaluate_with_physics_states(env, optimized_actions, custom_init)
-#     args_list = []
-
-#     for i in range(num_workers):
-#         ts = seg_size * i
-#         actions_segment = optimized_actions[ts: ts + seg_size]
-#         start_step = custom_init.start_step + ts
-#         cInit = CustomInit(0, start_step, physics_states[ts])
-#         args_list.append((actions_segment, cInit))
-        
-#     with multiprocessing.Pool(processes=num_workers) as pool:
-#         outputs = pool.starmap(optimize_clip_segment, args_list)
-#         optimized_actions = np.concatenate(outputs)
-        
-#     J, physics_states = evaluate_with_physics_states(env, optimized_actions, custom_init)
-#     logging.info('{}-threaded Optimization: Jini={:.3f} Jfin={:.3f} len(Actions)={} seg_size={}'.format(
-#         num_workers, Jini, J, len(actions), seg_size))
-#     return J, optimized_actions
-
-
-def singlethreaded_optimize(env, actions, custom_init, seg_size, additional_segs):
+def singlethreaded_optimize(env, actions, custom_init, optimizer_iters, seg_size, additional_segs):
     """ Optimizes a sequence of actions starting at step start_step in the clip.
         Breaks actions it into subsequences of size seg_size and iteratively optimizes
         each subsequence.
@@ -212,6 +193,7 @@ def singlethreaded_optimize(env, actions, custom_init, seg_size, additional_segs
             env: the environment.
             actions: ndarray of (n_steps x action_dim) of actions to optimize.
             start_step: offset from beginning of clip to start optimizing.
+            optimizer_iters: Number of optimizer iterations to run.
             init_physics_state: mujoco physics state associated with clip[start_step].
             seg_size: optimize segments of size seg_size.
 
@@ -232,11 +214,15 @@ def singlethreaded_optimize(env, actions, custom_init, seg_size, additional_segs
         opt_actions = optimize_clip_segment(
             env,
             actions=optimized_actions[ts: ts + seg_size],
+            optimizer_iters=optimizer_iters,
             custom_init=cInit,
             additional_actions=add_acts)
         optimized_actions[ts: ts + seg_size] = opt_actions
         J, physics_states = evaluate_with_physics_states(env, optimized_actions, custom_init)
-    
+        if episode_failed(env, opt_actions, cInit):
+            logging.info('Exiting early due to termination.')
+            break
+
     Jfin = evaluate(env, optimized_actions, custom_init)
     end = time.time()
     logging.info('Optimization Pass Complete: Jini={:.3f} Jfin={:.3f} len(Actions)={} elapsedTime(s)={:.1f}'.format(
@@ -268,13 +254,19 @@ def main(argv):
         Jinit, physics_states = evaluate_with_physics_states(env, actions, cInit)
     else:
         actions, physics_states, Jinit = get_trajectory_guess(env, cInit)
-    logging.info('Initial Trajectory: J={:.3f} Length={}'.format(Jinit, len(actions)))
 
-    Jfin, optimized_actions = singlethreaded_optimize(
-        env, actions, cInit, FLAGS.seg_size, FLAGS.additional_segs)
+    for idx in range(FLAGS.optimization_passes):
+        logging.info('Starting optimization pass {}: Jinit={:.3f} Length={}'.format(idx, Jinit, len(actions)))
 
-    logging.info('Saving actions to {}'.format(FLAGS.save_actions_path))
-    np.save(os.path.join(OUTPUT_DIR, FLAGS.save_actions_path), optimized_actions)
+        Jfin, optimized_actions = singlethreaded_optimize(
+            env, actions, cInit, FLAGS.optimizer_iters, FLAGS.seg_size, FLAGS.additional_segs)
+
+        fname = "opt_acts_{}.npy".format(idx)
+        logging.info('Saving actions to {}'.format(fname))
+        np.save(os.path.join(OUTPUT_DIR, fname), optimized_actions)
+
+        actions = np.copy(optimized_actions)
+        Jinit, physics_states = evaluate_with_physics_states(env, actions, cInit)
 
 
 if __name__ == "__main__":
