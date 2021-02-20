@@ -103,6 +103,7 @@ def evaluate_with_physics_states(env, actions, custom_init):
 
 
 def episode_failed(env, actions, custom_init):
+    """ Returns True if error exceeds termination threshold on any step. """
     env.task.set_custom_init(custom_init)
     env.reset_to_physics_state()
     for act in actions:
@@ -150,7 +151,7 @@ def optimize_clip_segment(env, actions, custom_init, optimizer_iters, additional
         method='powell',
         bounds=optimize.Bounds(lb=-np.ones_like(x0), ub=np.ones_like(x0)),
         options={
-            'disp': True,
+            'disp': False,
             'maxiter': optimizer_iters,
         }
     )
