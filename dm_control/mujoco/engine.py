@@ -375,11 +375,12 @@ class Physics(_control.Physics):
       if self._contexts:
         self._free_rendering_contexts()
 
+    # MJH: Disabled this as it changes physics state.
     # Call kinematics update to enable rendering.
-    try:
-      self.after_reset()
-    except _control.PhysicsError as e:
-      logging.warning(e)
+    # try:
+    #   self.after_reset()
+    # except _control.PhysicsError as e:
+    #   logging.warning(e)
 
     # Set up named indexing.
     axis_indexers = index.make_axis_indexers(self.model)

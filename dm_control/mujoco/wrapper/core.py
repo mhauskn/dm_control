@@ -693,6 +693,12 @@ class MjData(wrappers.MjDataWrapper):
     """Returns a copy of this MjData instance with the same parent MjModel."""
     return self.__copy__()
 
+  def deepcopy(self):
+    """Returns a copy of this MjData instance with a new MjModel."""
+    new_obj = self.__class__(self.model.copy())
+    mjlib.mj_copyData(new_obj.ptr, self.model.ptr, self.ptr)
+    return new_obj
+
   def free(self):
     """Frees the native resources held by this MjData.
 

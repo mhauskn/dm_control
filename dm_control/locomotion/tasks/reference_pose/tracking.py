@@ -310,24 +310,24 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     logging.debug('Mocap %s at step %d with remaining length %d.', clip_id,
                  start_step, self._last_step - start_step)
 
-  def set_custom_init(self, custom_init: 'NamedTuple'):
-    """ Sets custom set initialization parameters, which take effect upon next reset(). """
-    self._custom_clip_index = custom_init.clip_index
-    self._custom_start_step = custom_init.start_step
-    self._custom_physics_state = custom_init.physics_state
-    self._custom_init = True
+  def set_tracking_state_and_update(self, physics, clip_index, start_step):
+    """ Set the clip to track at a particular step and updates features. """
+    self._set_clip_to_track(clip_index, start_step)
+
+    self._walker_features = utils.get_features(physics, self._walker)
+    self._walker_features_prev = utils.get_features(physics, self._walker)
+
+    self._walker_joints = np.array(physics.bind(self._walker.mocap_joints).qpos)  # pytype: disable=attribute-error
+
+    self._compute_termination_error()
+    self._update_ghost(physics)
+    self._reset_reward_channels()    
 
   def initialize_episode(self, physics: 'mjcf.Physics',
                          random_state: np.random.RandomState):
-    if self._custom_init:
-      self._set_clip_to_track(self._custom_clip_index, self._custom_start_step)
-      physics.set_state(self._custom_physics_state)
-      # utils.set_walker_from_features(physics, self._walker, self._custom_init_features)
-      mjlib.mj_kinematics(physics.model.ptr, physics.data.ptr)
-    else:
-      self._get_clip_to_track(random_state)
-      # Set the walker at the beginning of the clip.
-      self._set_walker(physics)
+    self._get_clip_to_track(random_state)
+    # Set the walker at the beginning of the clip.
+    self._set_walker(physics)
 
     self._walker_features = utils.get_features(physics, self._walker)
     self._walker_features_prev = utils.get_features(physics, self._walker)
@@ -338,7 +338,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     self._compute_termination_error()
     # assert error is 0 at initialization. In particular this will prevent
     # a proto/walker mismatch.
-    if self._termination_error > 1e-2 and not self._custom_init:
+    if self._termination_error > 1e-2:
       raise ValueError(('The termination exceeds 1e-2 at initialization. '
                         'This is likely due to a proto/walker mismatch.'))
 

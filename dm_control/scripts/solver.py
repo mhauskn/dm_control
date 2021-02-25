@@ -19,6 +19,7 @@ from dm_control.locomotion.tasks.reference_pose import tracking
 from dm_control.locomotion.tasks.reference_pose import types
 from dm_control.locomotion.tasks.reference_pose import utils
 from dm_control.mujoco.wrapper import mjbindings
+from dm_control.mujoco.wrapper.mjbindings import mjlib
 from dm_control.viewer import application
 from dm_control.viewer import renderer
 from dm_control import _render
@@ -39,7 +40,7 @@ TERMINATION_ERROR_THRESHOLD = 0.3
 OUTPUT_DIR = os.environ.get('PT_OUTPUT_DIR', '.')
 DATA_DIR = os.environ.get('PT_DATA_DIR', '.')
 
-CustomInit = namedtuple('CustomInit', ['clip_index', 'start_step', 'physics_state'])
+CustomInit = namedtuple('CustomInit', ['start_step', 'physics_data'])
 
 FLAGS = flags.FLAGS
 flags.DEFINE_integer("additional_segs", 0, "Additional trajectory segments to add.")
@@ -51,34 +52,64 @@ flags.DEFINE_integer("optimizer_iters", 1, "Max iterations of Scipy optimizer.")
 flags.DEFINE_integer("optimization_passes", 1, "Number of optimization passes to perform.")
 
 
-def get_trajectory_guess(env, custom_init):
-    """ Returns an trajectory based on the provided actions and target reference poses. """
-    env.task.set_custom_init(custom_init)
-    time_step = env.reset()
+def set_task_state(env, start_step: int, physics_data: 'wrapper.MjData'):
+    """ Sets the state of the tracking task to a physics state & timestep. """
+    env._physics.free()
+    # Set the physics state of the environment
+    env._physics._reload_from_data(physics_data.deepcopy())
+    env._hooks._episode_step_count = 0
+    env._reset_next_step = False
+    # Set the tracking task to a particular timestep and update features
+    env.task.set_tracking_state_and_update(
+        physics=env.physics, clip_index=0, start_step=start_step)
+
+
+def evaluate_and_get_physics_data(env, actions, custom_init=None):
+    """ Resets the environment and executes the provided actions. 
+        Returns the total reward and the sequence of physics_data.
+    """
+    J = 0
+    if custom_init:
+        set_task_state(env, custom_init.start_step, custom_init.physics_data)
+    else:
+        env.reset()
+    physics_data = []
+    for act in actions:
+        physics_data.append(env.physics.data.deepcopy())
+        time_step = env.step(act)
+        J += time_step.reward
+        if time_step.last():
+            break
+    return J, physics_data
+
+
+def get_trajectory_guess(env, custom_init=None):
+    """ Returns an initial guess at an action trajectory based on inverse dynamics. """
+    if custom_init:
+        set_task_state(env, custom_init.start_step, custom_init.physics_data)
+    else:
+        env.reset()
     actions = []
     act_minimum = env.action_spec().minimum
     act_maximum = env.action_spec().maximum
-    physics_states = []
-    J = 0
     while True:
-        state = env._physics.get_state().copy()
-        physics_states.append(state)
         target_joints = env.task.get_reference_features()['joints']
         act = env.task._walker.cmu_pose_to_actuation(target_joints)
         act = np.minimum(np.maximum(act, act_minimum), act_maximum)
         actions.append(np.copy(act))
         time_step = env.step(act)
-        J += time_step.reward
         if time_step.last():
             break
-    return np.array(actions), physics_states, J
+    return np.array(actions)
 
 
-def evaluate(env, actions, custom_init):
+def evaluate(env, actions, custom_init=None):
     """ Resets the environment and executes the provided actions. """
+    if custom_init:
+        set_task_state(env, custom_init.start_step, custom_init.physics_data)
+    else:
+        env.reset()
     J = 0
-    env.task.set_custom_init(custom_init)
-    env.reset_to_physics_state() # env.reset()
     for act in actions:
         time_step = env.step(act)
         J += time_step.reward
@@ -87,25 +118,12 @@ def evaluate(env, actions, custom_init):
     return J
 
 
-def evaluate_with_physics_states(env, actions, custom_init):
-    """ Resets the environment and executes the provided actions. """
-    J = 0
-    env.task.set_custom_init(custom_init)
-    env.reset_to_physics_state() # env.reset()
-    physics_states = []
-    for act in actions:
-        physics_states.append(env._physics.get_state().copy())
-        time_step = env.step(act)
-        J += time_step.reward
-        if time_step.last():
-            break
-    return J, physics_states
-
-
-def episode_failed(env, actions, custom_init):
+def episode_failed(env, actions, custom_init=None):
     """ Returns True if error exceeds termination threshold on any step. """
-    env.task.set_custom_init(custom_init)
-    env.reset_to_physics_state()
+    if custom_init:
+        set_task_state(env, custom_init.start_step, custom_init.physics_data)
+    else:
+        env.reset()
     for act in actions:
         time_step = env.step(act)
         if env._task._termination_error >= TERMINATION_ERROR_THRESHOLD:
@@ -140,8 +158,8 @@ def optimize_clip_segment(env, actions, custom_init, optimizer_iters, additional
     x0 = actions.flatten()
     if additional_actions is not None:
         fun = lambda x: evaluate(env, 
-                                  np.concatenate((x.reshape(actions.shape), additional_actions)), 
-                                  custom_init)
+                                 np.concatenate((x.reshape(actions.shape), additional_actions)), 
+                                 custom_init)
     else:
         fun = lambda x: evaluate(env, x.reshape(actions.shape), custom_init)
 
@@ -185,7 +203,7 @@ def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22'):
     return env
 
 
-def singlethreaded_optimize(env, actions, custom_init, optimizer_iters, seg_size, additional_segs):
+def singlethreaded_optimize(env, actions, optimizer_iters, seg_size, additional_segs):
     """ Optimizes a sequence of actions starting at step start_step in the clip.
         Breaks actions it into subsequences of size seg_size and iteratively optimizes
         each subsequence.
@@ -203,13 +221,12 @@ def singlethreaded_optimize(env, actions, custom_init, optimizer_iters, seg_size
     """
     start = time.time()
     optimized_actions = np.copy(actions)
-    Jini, physics_states = evaluate_with_physics_states(env, optimized_actions, custom_init)
+    Jini, physics_data = evaluate_and_get_physics_data(env, optimized_actions)
 
     n_segs = math.ceil(len(actions) / seg_size)
     for seg_idx in range(n_segs):
         ts = seg_idx * seg_size
-        start_step = custom_init.start_step + ts
-        cInit = CustomInit(0, start_step, physics_states[ts])
+        cInit = CustomInit(ts, physics_data[ts])
         add_acts = optimized_actions[ts + seg_size: ts + (additional_segs+1)*seg_size] \
             if additional_segs > 0 else None
         opt_actions = optimize_clip_segment(
@@ -219,12 +236,12 @@ def singlethreaded_optimize(env, actions, custom_init, optimizer_iters, seg_size
             custom_init=cInit,
             additional_actions=add_acts)
         optimized_actions[ts: ts + seg_size] = opt_actions
-        J, physics_states = evaluate_with_physics_states(env, optimized_actions, custom_init)
+        J, physics_data = evaluate_and_get_physics_data(env, optimized_actions)
         if episode_failed(env, opt_actions, cInit):
             logging.info('Exiting early due to termination.')
             break
 
-    Jfin = evaluate(env, optimized_actions, custom_init)
+    Jfin = evaluate(env, optimized_actions)
     end = time.time()
     logging.info('Optimization Pass Complete: Jini={:.3f} Jfin={:.3f} len(Actions)={} elapsedTime(s)={:.1f}'.format(
         Jini, Jfin, len(actions), end-start))
@@ -244,30 +261,26 @@ def main(argv):
     log_flags(FLAGS)
     env = build_env(reward_type=FLAGS.reward_type,
                     clip_name=FLAGS.clip_name)
-    env.reset()
-    init_physics_state = env._physics.get_state().copy()
-    cInit = CustomInit(clip_index=0, start_step=0, physics_state=init_physics_state)
 
     if FLAGS.load_actions_path:
         fname = os.path.join(DATA_DIR, FLAGS.load_actions_path)
         logging.info('Loading actions from: {}'.format(fname))
         actions = np.load(fname)
-        Jinit, physics_states = evaluate_with_physics_states(env, actions, cInit)
     else:
-        actions, physics_states, Jinit = get_trajectory_guess(env, cInit)
+        actions = get_trajectory_guess(env)
 
     for idx in range(FLAGS.optimization_passes):
-        logging.info('Starting optimization pass {}: Jinit={:.3f} Length={}'.format(idx, Jinit, len(actions)))
+        J = evaluate(env, actions)
+        logging.info('Starting optimization pass {}: Jinit={:.3f} Length={}'.format(idx, J, len(actions)))
 
         Jfin, optimized_actions = singlethreaded_optimize(
-            env, actions, cInit, FLAGS.optimizer_iters, FLAGS.seg_size, FLAGS.additional_segs)
+            env, actions, FLAGS.optimizer_iters, FLAGS.seg_size, FLAGS.additional_segs)
 
         fname = "opt_acts_{}.npy".format(idx)
         logging.info('Saving actions to {}'.format(fname))
         np.save(os.path.join(OUTPUT_DIR, fname), optimized_actions)
 
         actions = np.copy(optimized_actions)
-        Jinit, physics_states = evaluate_with_physics_states(env, actions, cInit)
 
 
 if __name__ == "__main__":
