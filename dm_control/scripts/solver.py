@@ -4,6 +4,7 @@ import numpy as np
 import functools
 import math
 import time
+import resource
 from google.protobuf import descriptor
 from google.protobuf import text_format
 from dm_control import composer
@@ -225,6 +226,7 @@ def singlethreaded_optimize(env, actions, optimizer_iters, seg_size, additional_
 
     n_segs = math.ceil(len(actions) / seg_size)
     for seg_idx in range(n_segs):
+        logging.info('Memory Usage: {:.1f} Mb'.format(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1000.))
         ts = seg_idx * seg_size
         cInit = CustomInit(ts, physics_data[ts])
         add_acts = optimized_actions[ts + seg_size: ts + (additional_segs+1)*seg_size] \
@@ -236,11 +238,14 @@ def singlethreaded_optimize(env, actions, optimizer_iters, seg_size, additional_
             custom_init=cInit,
             additional_actions=add_acts)
         optimized_actions[ts: ts + seg_size] = opt_actions
-        J, physics_data = evaluate_and_get_physics_data(env, optimized_actions)
         if episode_failed(env, opt_actions, cInit):
             logging.info('Exiting early due to termination.')
             break
+        [pdata.free() for pdata in physics_data]
+        J, physics_data = evaluate_and_get_physics_data(env, optimized_actions)
 
+    for pdata in physics_data:
+        pdata.free()
     Jfin = evaluate(env, optimized_actions)
     end = time.time()
     logging.info('Optimization Pass Complete: Jini={:.3f} Jfin={:.3f} len(Actions)={} elapsedTime(s)={:.1f}'.format(

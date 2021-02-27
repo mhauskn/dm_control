@@ -469,6 +469,7 @@ class MjModel(wrappers.MjModelWrapper):
 
   def __copy__(self):
     new_model_ptr = mjlib.mj_copyModel(None, self.ptr)
+    _create_finalizer(new_model_ptr, mjlib.mj_deleteModel)
     return self.__class__(new_model_ptr)
 
   @classmethod

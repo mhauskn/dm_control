@@ -1,4 +1,5 @@
 import math
+import resource
 import numpy as np
 from dm_control import viewer
 from solver import build_env, evaluate_and_get_physics_data, set_task_state, evaluate, CustomInit
@@ -7,6 +8,7 @@ from absl import app
 from absl import flags
 from absl.testing import absltest
 from absl.testing import parameterized
+from absl import logging
 
 ACTION_PATH = "pt/termination_reward/search_termination_reward_additionalsegs_2_segsize_8_optimizeriters_4/opt_acts_1.npy"
 
@@ -58,6 +60,22 @@ class SolverTest(parameterized.TestCase):
         assert np.allclose(env.physics.get_state(), 
                            physics_states[n+1],
                            rtol=1.e-10, atol=1.e-10)
+
+
+    def test_memory_leak(self):
+        env = build_env(reward_type='termination', ghost_offset=0, clip_name="CMU_056_01")
+        actions = np.load(ACTION_PATH)
+        J, physics_data = evaluate_and_get_physics_data(env, actions)
+        
+        mem_usage_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1000.
+        for idx in range(1000):
+            set_task_state(env, 0, physics_data[0])
+
+        new_usage_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1000.
+        
+        assert new_usage_mb / mem_usage_mb <= 1.05, \
+            'Old Memory Usage: {:.1f} Mb. New Memory Usage {:.1f} Mb'.format(
+                mem_usage_mb, new_usage_mb)
 
 
 if __name__ == "__main__":
