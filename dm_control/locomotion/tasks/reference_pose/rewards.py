@@ -187,22 +187,34 @@ def supreme_reward_fn(termination_error, termination_error_threshold,
   """ A cost function that uses center of mass and quaternions. """
   differences = compute_squared_differences(walker_features, reference_features)
   costs = [
-    1 * differences['position'],
+    18 * termination_error,
+    0 * differences['position'],
     0 * differences['joints'],
-    1 * differences['center_of_mass'],
-    20 * differences['end_effectors'],
-    0 * differences['appendages'],
+    416. * differences['center_of_mass'],
+    0 * differences['end_effectors'],
+    7.4 * differences['appendages'],
     0 * differences['body_positions'],
     0 * differences['velocity'],
     0 * differences['angular_velocity'],
-    0 * differences['joints_velocity'],
-    .5 * differences['body_quaternions'],
+    .0045 * differences['joints_velocity'],
+    1.25 * differences['body_quaternions'],
     0 * differences['quaternion'],
   ]
   return RewardFnOutput(
       reward=sum(costs),
       debug=differences, 
       reward_terms=None)
+
+
+def termination_cost_fn(termination_error, termination_error_threshold,
+                          **unused_kwargs):
+  debug_terms = {
+      'termination_error': termination_error,
+      'termination_error_threshold': termination_error_threshold
+  }
+  return RewardFnOutput(reward=termination_error, debug=debug_terms,
+                        reward_terms=sort_dict(
+                            {'termination': termination_error}))
 
 
 _REWARD_FN = {
@@ -213,6 +225,7 @@ _REWARD_FN = {
     'quat': quat_reward_fn,
     'kumquat': kumquat_reward_fn,
     'supreme': supreme_reward_fn,
+    'termination' : termination_cost_fn,
 }
 
 _REWARD_CHANNELS = {
@@ -224,7 +237,8 @@ _REWARD_CHANNELS = {
     'com': ('center_of_mass'),
     'quat': ('body_quaternions'),
     'kumquat': ('center_of_mass', 'body_quaternions'),
-    'supreme': ('center_of_mass')
+    'supreme': ('center_of_mass'),
+    'termination': ('termination',),
 }
 
 
