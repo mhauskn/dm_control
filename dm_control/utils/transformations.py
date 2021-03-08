@@ -20,7 +20,7 @@ import numpy as np
 
 # Constants used to determine when a rotation is close to a pole.
 _POLE_LIMIT = (1.0 - 1e-6)
-_TOL = 1e-10
+_TOL = 1e-5
 
 
 def _clip_within_precision(number, low, high, precision=_TOL):

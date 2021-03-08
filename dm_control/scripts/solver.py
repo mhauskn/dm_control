@@ -182,7 +182,7 @@ def optimize_clip_segment(env, actions, custom_init, optimizer_iters, additional
     return opt_actions
 
 
-def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22'):
+def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22', proto_modifier=None):
     walker = cmu_humanoid.CMUHumanoidPositionControlledV2020
     arena = floors.Floor()
     task = tracking.MultiClipMocapTracking(
@@ -195,6 +195,7 @@ def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22'):
         reward_type=reward_type,
         always_init_at_clip_start=True,
         termination_error_threshold=1e10,
+        proto_modifier=proto_modifier,
         ghost_offset=ghost_offset,
     )
     env = composer.Environment(time_limit=30,
@@ -241,7 +242,8 @@ def singlethreaded_optimize(env, actions, optimizer_iters, seg_size, additional_
         if episode_failed(env, opt_actions, cInit):
             logging.info('Exiting early due to termination.')
             break
-        [pdata.free() for pdata in physics_data]
+        for pdata in physics_data:
+            pdata.free()
         J, physics_data = evaluate_and_get_physics_data(env, optimized_actions)
 
     for pdata in physics_data:
