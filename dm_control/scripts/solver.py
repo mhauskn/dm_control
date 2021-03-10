@@ -51,6 +51,8 @@ flags.DEFINE_string("clip_name", "CMU_016_22", "Name of reference clip. See cmu_
 flags.DEFINE_string("load_actions_path", None, "Path relative to DATA_DIR to load actions from.")
 flags.DEFINE_integer("optimizer_iters", 1, "Max iterations of Scipy optimizer.")
 flags.DEFINE_integer("optimization_passes", 1, "Number of optimization passes to perform.")
+flags.DEFINE_integer("seed", 42, "Random seed.")
+flags.DEFINE_float("force_magnitude", 0, "Magnitude of force applied to walker.")
 
 
 def set_task_state(env, start_step: int, physics_data: 'wrapper.MjData'):
@@ -197,10 +199,11 @@ def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22', proto_modifie
         termination_error_threshold=1e10,
         proto_modifier=proto_modifier,
         ghost_offset=ghost_offset,
+        force_magnitude=FLAGS.force_magnitude,
     )
     env = composer.Environment(time_limit=30,
                                 task=task,
-                                random_state=None,
+                                random_state=np.random.RandomState(seed=FLAGS.seed),
                                 strip_singleton_obs_buffer_dim=True)
     return env
 

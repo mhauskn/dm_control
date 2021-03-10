@@ -57,6 +57,21 @@ def _strip_reference_prefix(dictionary: Mapping[Text, Any], prefix: Text):
   return new_dictionary
 
 
+def random_three_vector(random_state: np.random.RandomState):
+  """
+  Generates a random 3D unit vector (direction) with a uniform spherical distribution
+  Algo from http://stackoverflow.com/questions/5408276/python-uniform-spherical-distribution
+  :return:
+  """
+  phi = random_state.uniform(0, np.pi * 2)
+  costheta = random_state.uniform(-1, 1)
+  theta = np.arccos(costheta)
+  x = np.sin(theta) * np.cos(phi)
+  y = np.sin(theta) * np.sin(phi)
+  z = np.cos(theta)
+  return (x,y,z)
+
+
 class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
   """Abstract base class for task that uses reference data."""
 
@@ -75,6 +90,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
       proto_modifier: Optional[Any] = None,
       ghost_offset: Optional[Sequence[Union[int, float]]] = None,
       body_error_multiplier: Union[int, float] = 1.0,
+      force_magnitude: float = 0,
   ):
     """Abstract task that uses reference data.
 
@@ -112,6 +128,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     self._always_init_at_clip_start = always_init_at_clip_start
     self._ghost_offset = ghost_offset
     self._body_error_multiplier = body_error_multiplier
+    self._force_magnitude = force_magnitude
     logging.info('Reward type %s', reward_type)
 
     if isinstance(dataset, Text):
@@ -272,6 +289,8 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
   def initialize_episode_mjcf(self, random_state: np.random.RandomState):
     if hasattr(self._arena, 'regenerate'):
       self._arena.regenerate(random_state)
+    if not hasattr(self, '_force_vector'):
+      self._force_vector = random_three_vector(random_state)
 
   def _get_clip_to_track(self, random_state: np.random.RandomState):
     # Randomly select a starting point.
@@ -371,6 +390,16 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
   def before_step(self, physics: 'mjcf.Physics', action,
                   random_state: np.random.RandomState):
     self._walker.apply_action(physics, action, random_state)
+    
+    if self._time_step == (self._last_step // 3) and self._force_magnitude > 0:
+      logging.info("Applying Force: Step: {} Magnitude: {} Direction: ({:.2f} {:.2f} {:.2f})".format(
+        self._time_step, self._force_magnitude, self._force_vector[0], self._force_vector[1],
+        self._force_vector[2]
+      ))
+      walker_body = physics.bind(self._walker.bodies[0])
+      walker_body.xfrc_applied[0] = self._force_magnitude * self._force_vector[0]
+      walker_body.xfrc_applied[1] = self._force_magnitude * self._force_vector[1]
+      walker_body.xfrc_applied[2] = self._force_magnitude * self._force_vector[2]
 
   def after_step(self, physics: 'mjcf.Physics',
                  random_state: np.random.RandomState):
@@ -621,6 +650,7 @@ class MultiClipMocapTracking(ReferencePosesTask):
       proto_modifier: Optional[Any] = None,
       ghost_offset: Optional[Sequence[Union[int, float]]] = None,
       body_error_multiplier: Union[int, float] = 1.0,
+      force_magnitude: float = 0.,
   ):
     """Mocap tracking task.
 
@@ -662,7 +692,8 @@ class MultiClipMocapTracking(ReferencePosesTask):
         always_init_at_clip_start=always_init_at_clip_start,
         proto_modifier=proto_modifier,
         ghost_offset=ghost_offset,
-        body_error_multiplier=body_error_multiplier)
+        body_error_multiplier=body_error_multiplier,
+        force_magnitude=force_magnitude)
     self._walker.observables.add_observable(
         'time_in_clip',
         base_observable.Generic(self.get_normalized_time_in_clip))
