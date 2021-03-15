@@ -139,7 +139,7 @@ def episode_failed(env, actions, custom_init=None):
 # def optimize_clip_segment(env, actions, custom_init, optimizer_iters, additional_actions=None):
 #     start_step = custom_init.start_step
 #     logging.info('Optimized Actions {}-{}'.format(start_step, start_step+len(actions)))
-#     return actions+.01
+#     return actions+.01, custom_init.physics_data.deepcopy()
 
 def optimize_clip_segment(env, actions, custom_init, optimizer_iters, additional_actions=None):
     """ Optimizes the provided actions.
@@ -181,7 +181,9 @@ def optimize_clip_segment(env, actions, custom_init, optimizer_iters, additional
     end = time.time()
     logging.info('Optimized Actions {}-{}. Jini={:.3f} Jfin={:.3f} elapsedTime(s)={:.1f}'.format(
         custom_init.start_step, custom_init.start_step+len(actions), J_init, J_fin, end-start))
-    return opt_actions
+    evaluate(env, opt_actions, custom_init)
+    final_state = env.physics.data.deepcopy()
+    return opt_actions, final_state
 
 
 def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22', proto_modifier=None):
@@ -194,6 +196,7 @@ def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22', proto_modifie
         dataset=types.ClipCollection(ids=[clip_name]),
         ref_steps=(1, 2, 3, 4, 5),
         min_steps=10,
+        max_steps=256,
         reward_type=reward_type,
         always_init_at_clip_start=True,
         termination_error_threshold=1e10,
@@ -201,10 +204,10 @@ def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22', proto_modifie
         ghost_offset=ghost_offset,
         force_magnitude=FLAGS.force_magnitude,
     )
-    env = composer.Environment(time_limit=30,
-                                task=task,
-                                random_state=np.random.RandomState(seed=FLAGS.seed),
-                                strip_singleton_obs_buffer_dim=True)
+    env = composer.Environment(
+        task=task, 
+        random_state=np.random.RandomState(seed=FLAGS.seed)
+    )
     return env
 
 
@@ -225,17 +228,19 @@ def singlethreaded_optimize(env, actions, optimizer_iters, seg_size, additional_
             The return J of the optimized sequences and the optimized actions.
     """
     start = time.time()
+    Jini = evaluate(env, actions)
     optimized_actions = np.copy(actions)
-    Jini, physics_data = evaluate_and_get_physics_data(env, optimized_actions)
-
+    env.reset()
+    physics_state = env.physics.data.deepcopy()
     n_segs = math.ceil(len(actions) / seg_size)
+    
     for seg_idx in range(n_segs):
         logging.info('Memory Usage: {:.1f} Mb'.format(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1000.))
         ts = seg_idx * seg_size
-        cInit = CustomInit(ts, physics_data[ts])
+        cInit = CustomInit(ts, physics_state)
         add_acts = optimized_actions[ts + seg_size: ts + (additional_segs+1)*seg_size] \
             if additional_segs > 0 else None
-        opt_actions = optimize_clip_segment(
+        opt_actions, new_physics_state = optimize_clip_segment(
             env,
             actions=optimized_actions[ts: ts + seg_size],
             optimizer_iters=optimizer_iters,
@@ -245,18 +250,16 @@ def singlethreaded_optimize(env, actions, optimizer_iters, seg_size, additional_
         if episode_failed(env, opt_actions, cInit):
             logging.info('Exiting early due to termination.')
             break
-        for pdata in physics_data:
-            pdata.free()
-        J, physics_data = evaluate_and_get_physics_data(env, optimized_actions)
+        physics_state.free()
+        physics_state = new_physics_state
 
-    for pdata in physics_data:
-        pdata.free()
+    physics_state.free()
     Jfin = evaluate(env, optimized_actions)
     end = time.time()
     logging.info('Optimization Pass Complete: Jini={:.3f} Jfin={:.3f} len(Actions)={} elapsedTime(s)={:.1f}'.format(
         Jini, Jfin, len(actions), end-start))
 
-    return J, optimized_actions
+    return optimized_actions
 
 
 def log_flags(flags):
@@ -283,7 +286,7 @@ def main(argv):
         J = evaluate(env, actions)
         logging.info('Starting optimization pass {}: Jinit={:.3f} Length={}'.format(idx, J, len(actions)))
 
-        Jfin, optimized_actions = singlethreaded_optimize(
+        optimized_actions = singlethreaded_optimize(
             env, actions, FLAGS.optimizer_iters, FLAGS.seg_size, FLAGS.additional_segs)
 
         fname = "opt_acts_{}.npy".format(idx)
