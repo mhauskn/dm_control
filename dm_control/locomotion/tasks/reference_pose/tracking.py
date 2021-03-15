@@ -84,6 +84,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
       dataset: Union[Text, types.ClipCollection],
       termination_error_threshold: float = 0.3,
       min_steps: int = 10,
+      max_steps: int = 256,
       reward_type: Text = 'termination_reward',
       physics_timestep: float = DEFAULT_PHYSICS_TIMESTEP,
       always_init_at_clip_start: bool = False,
@@ -125,6 +126,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     self._reward_fn = rewards.get_reward(reward_type)
     self._reward_keys = rewards.get_reward_channels(reward_type)
     self._min_steps = min_steps
+    self._max_steps = max_steps
     self._always_init_at_clip_start = always_init_at_clip_start
     self._ghost_offset = ghost_offset
     self._body_error_multiplier = body_error_multiplier
@@ -419,6 +421,10 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
       logging.debug('End of mocap.')
       return True
 
+    if self._time_step >= self._max_steps:
+      logging.debug('Max steps reached.')
+      return True
+
     return False
 
   def get_discount(self, physics: 'mjcf.Physics'):
@@ -644,6 +650,7 @@ class MultiClipMocapTracking(ReferencePosesTask):
       dataset: Union[Text, Sequence[Any]],
       termination_error_threshold: float = 0.3,
       min_steps: int = 10,
+      max_steps: int = 256,
       reward_type: Text = 'termination_reward',
       physics_timestep: float = DEFAULT_PHYSICS_TIMESTEP,
       always_init_at_clip_start: bool = False,
@@ -686,6 +693,7 @@ class MultiClipMocapTracking(ReferencePosesTask):
         ref_steps=ref_steps,
         termination_error_threshold=termination_error_threshold,
         min_steps=min_steps,
+        max_steps=max_steps,
         dataset=dataset,
         reward_type=reward_type,
         physics_timestep=physics_timestep,
