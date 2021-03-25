@@ -48,6 +48,7 @@ flags.DEFINE_integer("additional_segs", 0, "Additional trajectory segments to ad
 flags.DEFINE_string("reward_type", "kumquat", "Name of reward function.")
 flags.DEFINE_integer("seg_size", 8, "Size of segments to optimize.")
 flags.DEFINE_string("clip_name", "CMU_016_22", "Name of reference clip. See cmu_subsets.py")
+flags.DEFINE_integer("start_step", 0, "Starting step in the clip.")
 flags.DEFINE_string("load_actions_path", None, "Path relative to DATA_DIR to load actions from.")
 flags.DEFINE_integer("optimizer_iters", 1, "Max iterations of Scipy optimizer.")
 flags.DEFINE_integer("optimization_passes", 1, "Number of optimization passes to perform.")
@@ -187,7 +188,7 @@ def optimize_clip_segment(env, actions, custom_init, optimizer_iters, additional
     return opt_actions, final_state
 
 
-def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22', proto_modifier=None,
+def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22', start_step=0,
               force_magnitude=0, disable_observables=True):
     walker = cmu_humanoid.CMUHumanoidPositionControlledV2020
     arena = floors.Floor()
@@ -197,12 +198,11 @@ def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22', proto_modifie
         ref_path=cmu_mocap_data.get_path_for_cmu_2020(),
         dataset=types.ClipCollection(ids=[clip_name]),
         ref_steps=(1, 2, 3, 4, 5),
-        min_steps=10,
+        start_step=start_step,
         max_steps=256,
         reward_type=reward_type,
         always_init_at_clip_start=True,
         termination_error_threshold=1e10,
-        proto_modifier=proto_modifier,
         ghost_offset=ghost_offset,
         force_magnitude=force_magnitude,
         disable_observables=disable_observables,
@@ -278,6 +278,7 @@ def main(argv):
     env = build_env(
         reward_type=FLAGS.reward_type,
         clip_name=FLAGS.clip_name,
+        start_step=FLAGS.start_step,
         force_magnitude=FLAGS.force_magnitude,
         disable_observables=FLAGS.disable_observables,
     )

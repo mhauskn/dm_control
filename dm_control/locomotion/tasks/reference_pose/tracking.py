@@ -83,7 +83,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
       ref_steps: Sequence[int],
       dataset: Union[Text, types.ClipCollection],
       termination_error_threshold: float = 0.3,
-      min_steps: int = 10,
+      start_step: int = 0,
       max_steps: int = 256,
       reward_type: Text = 'termination_reward',
       physics_timestep: float = DEFAULT_PHYSICS_TIMESTEP,
@@ -106,9 +106,8 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
       dataset: A ClipCollection instance or a name of a dataset that appears as
         a key in DATASETS in datasets.py
       termination_error_threshold: Error threshold for episode terminations.
-      min_steps: minimum number of steps within an episode. This argument
-        determines the latest allowable starting point within a given reference
-        trajectory.
+      start_step: Step in clip to jump to when reset.
+      max_steps: Terminates episode after this many steps.
       reward_type: type of reward to use, must be a string that appears as a key
         in the REWARD_FN dict in rewards.py.
       physics_timestep: Physics timestep to use for simulation.
@@ -128,7 +127,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     self._termination_error_threshold = termination_error_threshold
     self._reward_fn = rewards.get_reward(reward_type)
     self._reward_keys = rewards.get_reward_channels(reward_type)
-    self._min_steps = min_steps
+    self._start_step = start_step
     self._max_steps = max_steps
     self._always_init_at_clip_start = always_init_at_clip_start
     self._ghost_offset = ghost_offset
@@ -144,10 +143,6 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
         raise
     self._load_reference_data(
         ref_path=ref_path, proto_modifier=proto_modifier, dataset=dataset)
-
-    self._get_possible_starts()
-
-    logging.info('%d starting points found.', len(self._possible_starts))
 
     # load a dummy trajectory
     self._current_clip_index = 0
@@ -268,43 +263,11 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
         'joints_vel_control',
         base_observable.Generic(self.get_joints_vel_control))
 
-  def _get_possible_starts(self):
-    # List all possible (clip, step) starting points.
-    self._possible_starts = []
-    self._start_probabilities = []
-    dataset = self._dataset
-    for clip_number, (start, end, weight) in enumerate(
-        zip(dataset.start_steps, dataset.end_steps, dataset.weights)):
-      # length - required lookahead - minimum number of steps
-      last_possible_start = end - self._max_ref_step - self._min_steps
-
-      if self._always_init_at_clip_start:
-        self._possible_starts += [(clip_number, start)]
-        self._start_probabilities += [weight]
-      else:
-        self._possible_starts += [
-            (clip_number, j) for j in range(start, last_possible_start)
-        ]
-        self._start_probabilities += [
-            weight for _ in range(start, last_possible_start)
-        ]
-
-    # normalize start probabilities
-    self._start_probabilities = np.array(self._start_probabilities) / np.sum(
-        self._start_probabilities)
-
   def initialize_episode_mjcf(self, random_state: np.random.RandomState):
     if hasattr(self._arena, 'regenerate'):
       self._arena.regenerate(random_state)
     if not hasattr(self, '_force_vector'):
       self._force_vector = random_three_vector(random_state)
-
-  def _get_clip_to_track(self, random_state: np.random.RandomState):
-    # Randomly select a starting point.
-    index = random_state.choice(
-        len(self._possible_starts), p=self._start_probabilities)
-    clip_index, start_step = self._possible_starts[index]
-    self._set_clip_to_track(clip_index, start_step)
 
   def _set_clip_to_track(self, clip_index, start_step):
     """Start tracking a particular clip at a particular time. """
@@ -351,7 +314,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
 
   def initialize_episode(self, physics: 'mjcf.Physics',
                          random_state: np.random.RandomState):
-    self._get_clip_to_track(random_state)
+    self._set_clip_to_track(clip_index=0, start_step=self._start_step)
     # Set the walker at the beginning of the clip.
     self._set_walker(physics)
 
@@ -654,7 +617,7 @@ class MultiClipMocapTracking(ReferencePosesTask):
       ref_steps: Sequence[int],
       dataset: Union[Text, Sequence[Any]],
       termination_error_threshold: float = 0.3,
-      min_steps: int = 10,
+      start_step: int = 0,
       max_steps: int = 256,
       reward_type: Text = 'termination_reward',
       physics_timestep: float = DEFAULT_PHYSICS_TIMESTEP,
@@ -677,9 +640,7 @@ class MultiClipMocapTracking(ReferencePosesTask):
       dataset: dataset: A ClipCollection instance or a named dataset that
         appears as a key in DATASETS in datasets.py
       termination_error_threshold: Error threshold for episode terminations.
-      min_steps: minimum number of steps within an episode. This argument
-        determines the latest allowable starting point within a given reference
-        trajectory.
+      start_step: Step in clip to jump to when reset.
       reward_type: type of reward to use, must be a string that appears as a key
         in the REWARD_FN dict in rewards.py.
       physics_timestep: Physics timestep to use for simulation.
@@ -700,7 +661,7 @@ class MultiClipMocapTracking(ReferencePosesTask):
         ref_path=ref_path,
         ref_steps=ref_steps,
         termination_error_threshold=termination_error_threshold,
-        min_steps=min_steps,
+        start_step=start_step,
         max_steps=max_steps,
         dataset=dataset,
         reward_type=reward_type,
