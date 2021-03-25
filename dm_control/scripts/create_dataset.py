@@ -49,7 +49,8 @@ def extract_data(job_dir):
 
     env = build_env(
         reward_type="termination",
-        clip_name=clip_name
+        clip_name=clip_name,
+        disable_observables=False,
     )
     return run_episode(env, actions)
 
@@ -93,7 +94,7 @@ def create_dataset(argv):
                 all_actions.append(actions)
                 all_dones.append(dones)
             except Exception as e:
-                logging.warning(e)
+                logging.fatal(repr(e))
 
     # Concatenate everything
     all_actions_np = np.concatenate(all_actions)

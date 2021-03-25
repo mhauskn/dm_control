@@ -92,6 +92,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
       ghost_offset: Optional[Sequence[Union[int, float]]] = None,
       body_error_multiplier: Union[int, float] = 1.0,
       force_magnitude: float = 0,
+      disable_observables: bool = False,
   ):
     """Abstract task that uses reference data.
 
@@ -119,6 +120,8 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
         the reference pose at the specified position offset.
       body_error_multiplier: A multiplier that is applied to the body error term
         when determining failure termination condition.
+      disable_observables: Increases the execution of speed of the environment 
+        when observables are disabled.
     """
     self._ref_steps = np.sort(ref_steps)
     self._max_ref_step = self._ref_steps[-1]
@@ -167,8 +170,10 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     walker_bodies_names = [bdy.name for bdy in walker_bodies]
     self._body_idxs = np.array(
         [walker_bodies_names.index(bdy) for bdy in walker_bodies_names])
-    # Create the observables.
-    # self._add_observables()
+
+    if not disable_observables:
+      # Create the observables.
+      self._add_observables()
 
     # initialize counters etc.
     self._time_step = 0
@@ -658,6 +663,7 @@ class MultiClipMocapTracking(ReferencePosesTask):
       ghost_offset: Optional[Sequence[Union[int, float]]] = None,
       body_error_multiplier: Union[int, float] = 1.0,
       force_magnitude: float = 0.,
+      disable_observables: bool = False,
   ):
     """Mocap tracking task.
 
@@ -685,6 +691,8 @@ class MultiClipMocapTracking(ReferencePosesTask):
         the reference pose at the specified position offset.
       body_error_multiplier: A multiplier that is applied to the body error term
         when determining failure termination condition.
+      disable_observables: Increases the execution of speed of the environment 
+        when observables are disabled.        
     """
     super().__init__(
         walker=walker,
@@ -701,7 +709,8 @@ class MultiClipMocapTracking(ReferencePosesTask):
         proto_modifier=proto_modifier,
         ghost_offset=ghost_offset,
         body_error_multiplier=body_error_multiplier,
-        force_magnitude=force_magnitude)
+        force_magnitude=force_magnitude,
+        disable_observables=disable_observables)
     self._walker.observables.add_observable(
         'time_in_clip',
         base_observable.Generic(self.get_normalized_time_in_clip))

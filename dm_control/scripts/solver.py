@@ -53,6 +53,7 @@ flags.DEFINE_integer("optimizer_iters", 1, "Max iterations of Scipy optimizer.")
 flags.DEFINE_integer("optimization_passes", 1, "Number of optimization passes to perform.")
 flags.DEFINE_integer("seed", 42, "Random seed.")
 flags.DEFINE_float("force_magnitude", 0, "Magnitude of force applied to walker.")
+flags.DEFINE_boolean("disable_observables", True, "Disables observations for faster run speed.")
 
 
 def set_task_state(env, start_step: int, physics_data: 'wrapper.MjData'):
@@ -186,7 +187,8 @@ def optimize_clip_segment(env, actions, custom_init, optimizer_iters, additional
     return opt_actions, final_state
 
 
-def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22', proto_modifier=None):
+def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22', proto_modifier=None,
+              force_magnitude=0, disable_observables=True):
     walker = cmu_humanoid.CMUHumanoidPositionControlledV2020
     arena = floors.Floor()
     task = tracking.MultiClipMocapTracking(
@@ -202,7 +204,8 @@ def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22', proto_modifie
         termination_error_threshold=1e10,
         proto_modifier=proto_modifier,
         ghost_offset=ghost_offset,
-        force_magnitude=FLAGS.force_magnitude,
+        force_magnitude=force_magnitude,
+        disable_observables=disable_observables,
     )
     env = composer.Environment(
         task=task, 
@@ -230,7 +233,7 @@ def singlethreaded_optimize(env, actions, optimizer_iters, seg_size, additional_
     start = time.time()
     Jini = evaluate(env, actions)
     optimized_actions = np.copy(actions)
-    env.reset()
+    time_step = env.reset()
     physics_state = env.physics.data.deepcopy()
     n_segs = math.ceil(len(actions) / seg_size)
     
@@ -272,8 +275,12 @@ def log_flags(flags):
 
 def main(argv):
     log_flags(FLAGS)
-    env = build_env(reward_type=FLAGS.reward_type,
-                    clip_name=FLAGS.clip_name)
+    env = build_env(
+        reward_type=FLAGS.reward_type,
+        clip_name=FLAGS.clip_name,
+        force_magnitude=FLAGS.force_magnitude,
+        disable_observables=FLAGS.disable_observables,
+    )
 
     if FLAGS.load_actions_path:
         fname = os.path.join(DATA_DIR, FLAGS.load_actions_path)
