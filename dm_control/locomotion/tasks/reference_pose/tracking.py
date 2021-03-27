@@ -389,7 +389,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
       logging.debug('End of mocap.')
       return True
 
-    if self._time_step >= self._max_steps:
+    if self._time_step - self._start_step >= self._max_steps:
       logging.debug('Max steps reached.')
       return True
 
