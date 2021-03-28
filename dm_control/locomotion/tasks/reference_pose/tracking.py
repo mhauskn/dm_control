@@ -299,9 +299,9 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     logging.debug('Mocap %s at step %d with remaining length %d.', clip_id,
                  start_step, self._last_step - start_step)
 
-  def set_tracking_state_and_update(self, physics, clip_index, start_step):
+  def set_tracking_state_and_update(self, physics, clip_index, step_offset):
     """ Set the clip to track at a particular step and updates features. """
-    self._set_clip_to_track(clip_index, start_step)
+    self._set_clip_to_track(clip_index, self._start_step + step_offset)
 
     self._walker_features = utils.get_features(physics, self._walker)
     self._walker_features_prev = utils.get_features(physics, self._walker)

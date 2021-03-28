@@ -57,7 +57,7 @@ flags.DEFINE_float("force_magnitude", 0, "Magnitude of force applied to walker."
 flags.DEFINE_boolean("disable_observables", True, "Disables observations for faster run speed.")
 
 
-def set_task_state(env, start_step: int, physics_data: 'wrapper.MjData'):
+def set_task_state(env, step_offset: int, physics_data: 'wrapper.MjData'):
     """ Sets the state of the tracking task to a physics state & timestep. """
     env._physics.free()
     # Set the physics state of the environment
@@ -66,7 +66,7 @@ def set_task_state(env, start_step: int, physics_data: 'wrapper.MjData'):
     env._reset_next_step = False
     # Set the tracking task to a particular timestep and update features
     env.task.set_tracking_state_and_update(
-        physics=env.physics, clip_index=0, start_step=start_step)
+        physics=env.physics, clip_index=0, step_offset=step_offset)
 
 
 def evaluate_and_get_physics_data(env, actions, custom_init=None):
