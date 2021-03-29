@@ -33,8 +33,12 @@ def analyze_trajectory(env, actions):
 
 
 def visualize_trajectory(argv):
-    env = build_env(reward_type=FLAGS.reward_type, ghost_offset=1, 
-                    clip_name=FLAGS.clip_name)
+    env = build_env(
+        reward_type=FLAGS.reward_type, 
+        ghost_offset=1, 
+        clip_name=FLAGS.clip_name,
+        start_step=FLAGS.start_step,
+    )
     actions = np.load(FLAGS.load_actions_path)
     analyze_trajectory(env, actions)
 
