@@ -117,7 +117,7 @@ class Trainer:
                 logger.info("test loss: %f", test_loss)
                 return test_loss
 
-        best_loss = float('inf')
+        best_loss, test_loss = float('inf'), float('inf')
         self.tokens = 0 # counter used for learning rate decay
         for epoch in range(config.max_epochs):
 
