@@ -8,7 +8,7 @@ class FFNet(nn.Module):
     def __init__(self):
         super().__init__()
         self.mlp = nn.Sequential(
-            nn.Linear(208, 1024),
+            nn.Linear(152, 1024),
             nn.ReLU(),
             nn.Linear(1024, 1024),
             nn.ReLU(),
@@ -23,6 +23,7 @@ class FFNet(nn.Module):
 
 
     def forward(self, x, targets=None):
+        # logits = torch.tanh(self.mlp(x))
         logits = self.mlp(x)
 
         loss = None

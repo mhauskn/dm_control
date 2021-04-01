@@ -6,6 +6,7 @@ from absl import app
 from absl import flags
 from absl import logging
 from solver import build_env
+from dataset import OBS_KEYS
 
 # This script processes saved actions sequences into a (state, action) 
 # dataset for downstream consumption.
@@ -16,18 +17,6 @@ FLAGS = flags.FLAGS
 flags.DEFINE_list("input_dirs", ".", "List of directories to gather actions from.")
 flags.DEFINE_string("output_path", "trajectory_dataset.hdf5", "Output file for the dataset.")
 
-OBS_KEYS = [
-    'walker/joints_pos',
-    'walker/joints_vel',
-    'walker/appendages_pos',
-    'walker/body_height',
-    'walker/actuator_activation',
-    'walker/sensors_accelerometer',
-    'walker/sensors_gyro',
-    'walker/sensors_torque',
-    'walker/sensors_touch',
-    'walker/sensors_velocimeter',
-]
 
 def parse_clip_name(stdout_file):
     """ Parses the name of the clip from the stdout.txt of the job's run. """

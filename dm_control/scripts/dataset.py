@@ -13,6 +13,7 @@ OBS_KEYS = [
     'walker/sensors_torque',
     'walker/sensors_touch',
     'walker/sensors_velocimeter',
+    'walker/reference_rel_joints',
 ]
 
 class TrajectoryDataset(Dataset):
@@ -20,8 +21,9 @@ class TrajectoryDataset(Dataset):
         dset = h5py.File(h5py_file, 'r')
         self.block_size = block_size
         # Copy the dataset into memory
-        self.observations = np.concatenate([dset['observables/{}'.format(k)][...] for k in OBS_KEYS], axis=1)
+        # self.observations = np.concatenate([dset['observables/{}'.format(k)][...] for k in OBS_KEYS], axis=1)
         self.actions = dset['actions'][...]
+        self.observations = np.eye(self.actions.shape[0], dtype=np.float32)
 
     def __len__(self):
         return self.actions.shape[0]

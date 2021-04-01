@@ -72,8 +72,9 @@ class Trainer:
                                 num_workers=config.num_workers)
 
             losses = []
-            pbar = tqdm(enumerate(loader), total=len(loader)) if is_train else enumerate(loader)
-            for it, (x, y) in pbar:
+            # pbar = tqdm(enumerate(loader), total=len(loader)) if is_train else enumerate(loader)
+            # for it, (x, y) in pbar:
+            for it, (x, y) in enumerate(loader):
 
                 # place data on the correct device
                 x = x.to(self.device)
@@ -110,7 +111,8 @@ class Trainer:
                         lr = config.learning_rate
 
                     # report progress
-                    pbar.set_description(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. lr {lr:e}")
+                    # pbar.set_description(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. lr {lr:e}")
+                    print(f"Epoch {epoch+1} loss {loss.item()}")
 
             if not is_train:
                 test_loss = float(np.mean(losses))
@@ -126,7 +128,8 @@ class Trainer:
                 test_loss = run_epoch('test')
 
             # supports early stopping based on the test loss, or just save always if no test set is provided
-            good_model = self.test_dataset is None or test_loss < best_loss
-            if self.config.ckpt_path is not None and good_model:
-                best_loss = test_loss
-                self.save_checkpoint()
+            # good_model = self.test_dataset is None or test_loss < best_loss
+            # if self.config.ckpt_path is not None and good_model:
+            #     best_loss = test_loss
+            #     self.save_checkpoint()
+        self.save_checkpoint()                
