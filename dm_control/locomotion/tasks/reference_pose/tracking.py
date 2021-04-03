@@ -133,7 +133,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     self._ghost_offset = ghost_offset
     self._body_error_multiplier = body_error_multiplier
     self._force_magnitude = force_magnitude
-    logging.info('Reward type %s', reward_type)
+    # logging.info('Reward type %s', reward_type)
 
     if isinstance(dataset, Text):
       try:

@@ -375,8 +375,8 @@ class Environment(_CommonEnvironment, dm_env.Environment):
       else:
         raise
 
-    self._hooks.after_step(self._physics_proxy, self._random_state)
     self._observation_updater.update()
+    self._hooks.after_step(self._physics_proxy, self._random_state)
 
     if not physics_is_divergent:
       reward = self._task.get_reward(self._physics_proxy)
