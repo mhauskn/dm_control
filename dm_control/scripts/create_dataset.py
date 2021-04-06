@@ -7,7 +7,7 @@ from absl import app
 from absl import flags
 from absl import logging
 from solver import build_env, evaluate
-from dataset import OBS_KEYS
+from tqdm import tqdm
 
 # This script processes saved actions sequences into a (state, action) 
 # dataset for downstream consumption.
@@ -56,7 +56,7 @@ def extract_data(job_dir):
         clip_name = parse_clip_name(stdout_path)
         start_step = parse_start_step(stdout_path)
         expected_JFin = parse_final_performance(stdout_path)
-        logging.info(f'Parsed {job_dir}: clip_name: {clip_name} start_step: {start_step} Jfin: {expected_JFin:.3f}')
+        logging.debug(f'Parsed {job_dir}: clip_name: {clip_name} start_step: {start_step} Jfin: {expected_JFin:.3f}')
     except:
         raise
 
@@ -77,7 +77,7 @@ def extract_data(job_dir):
             assert math.isclose(Jfin, expected_JFin, abs_tol=.001)
         return concat_obs, concat_act
     else:
-        logging.info(f'Detected early termination: {stdout_path}')
+        logging.debug(f'Detected early termination: {stdout_path}')
         return None, None
 
 
@@ -86,12 +86,16 @@ def run_episode(env, actions):
         Returns: Success (boolean), observations, actions.
     """
     time_step = env.reset()
-    observables = {key: [] for key in OBS_KEYS}
+    observables = {key: [] for key, v in time_step.observation.items() if v.size > 0}
     J = 0
     for idx, act in enumerate(actions):
-        for k in OBS_KEYS:
-            features = time_step.observation[k].astype(np.float32)
-            observables[k].append(features)
+        for k,v in time_step.observation.items():
+            if v.size > 0:
+                features = np.array(v, dtype=np.float32, copy=True)
+                # Expand to make sure all observables have at least 2 dimensions
+                if features.ndim < 2:
+                    features = features[:, np.newaxis]
+                observables[k].append(features)
         time_step = env.step(act)
         J += time_step.reward
         if env._task._termination_error >= TERMINATION_ERROR_THRESHOLD:
@@ -99,14 +103,14 @@ def run_episode(env, actions):
         if time_step.last():
             break
     concat_obs = { k: np.concatenate(v) for k,v in observables.items() }
-    concat_act = actions[:idx+1].astype(np.float32)
+    concat_act = np.array(actions[:idx+1], dtype=np.float32, copy=True)
     return True, J, concat_obs, concat_act
 
 def check_for_finished_jobs(input_dirs):
     """ Checks each experiment directory for a stdout.txt file and a opt_acts_0.npy action file.
         Returns a list of experiment directories that are missing either of these.
     """
-    finished_jobs = []
+    finished_jobs, failed_jobs = [], []
     for exp_dir in input_dirs:
         for job_dir in next(os.walk(exp_dir))[1]:
             full_path = pjoin(exp_dir, job_dir)
@@ -114,8 +118,9 @@ def check_for_finished_jobs(input_dirs):
                 os.path.exists(pjoin(full_path, 'opt_acts_0.npy')):
                 finished_jobs.append(full_path)
             else:
-                logging.info(f'Unfinished job: {full_path} is missing required files.')
-    return finished_jobs
+                # logging.info(f'Unfinished job: {full_path} is missing required files.')
+                failed_jobs.append(full_path)
+    return finished_jobs, failed_jobs
 
 def create_dataset(argv):
     """ To create a dataset:
@@ -130,9 +135,11 @@ def create_dataset(argv):
     """
     all_observations, all_actions, all_dones = [], [], []
     early_terminations = []
-    finished_jobs = check_for_finished_jobs(FLAGS.input_dirs)
-    logging.info(f'Detected {len(finished_jobs)} finished jobs')
-    for job_dir in finished_jobs:
+    finished_jobs, failed_jobs = check_for_finished_jobs(FLAGS.input_dirs)
+    # logging.info(f'Detected {len(finished_jobs)} finished jobs')
+    pbar = tqdm(finished_jobs)
+    for job_dir in pbar:
+        pbar.set_description(f"{job_dir}")
         observations, actions = extract_data(job_dir)
         # Ignore clips that resulted in early termination / failure
         if observations == None:
@@ -145,8 +152,10 @@ def create_dataset(argv):
         all_actions.append(actions)
         all_dones.append(dones)
 
+    for job_dir in failed_jobs:
+        logging.info(f'[Failed Job] {job_dir}')
     for job_dir in early_terminations:
-        logging.info(f'[Early Termination] Consider re-run: {job_dir}')
+        logging.info(f'[Early Termination] {job_dir}')
 
     # Concatenate everything
     all_actions_np = np.concatenate(all_actions)
@@ -167,7 +176,10 @@ def create_dataset(argv):
     for k,v in all_observations_np.items():
         dset = grp.create_dataset(k, v.shape, v.dtype)
         dset[...] = v
-
+    logging.info(f'[Finished!] Jobs: {len(finished_jobs)}/{len(finished_jobs)+len(failed_jobs)} successful; {len(early_terminations)} early terminations;')
+    logging.info(f'Action Shape: {all_actions_np.shape}')
+    for k,v in all_observations_np.items():
+        logging.info(f'Observation {k} Shape: {v.shape}')
 
 def load_dataset(argv):
     f = h5py.File(FLAGS.output_path, 'r')
