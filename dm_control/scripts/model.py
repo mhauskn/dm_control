@@ -8,7 +8,7 @@ class FFNet(nn.Module):
     def __init__(self):
         super().__init__()
         self.mlp = nn.Sequential(
-            nn.Linear(152, 1024),
+            nn.Linear(2846, 1024),
             nn.ReLU(),
             nn.Linear(1024, 1024),
             nn.ReLU(),
