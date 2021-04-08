@@ -2,7 +2,7 @@ import torch
 import os
 import numpy as np
 from trainer import Trainer, TrainerConfig
-from model import FFNet
+from model import FFNet, GPT, GPTConfig
 from dataset import TrajectoryDataset
 from absl import flags, logging, app
 
@@ -16,12 +16,19 @@ flags.DEFINE_integer("max_epochs", 10, "Maximum training epochs.")
 flags.DEFINE_integer("batch_size", 64, "Batch size used during training.")
 flags.DEFINE_float("learning_rate", .0001, "Learning rate")
 flags.DEFINE_float("grad_norm_clip", 5.0, "Clip Gradient Norm")
+flags.DEFINE_integer("block_size", 4, "Size of history/context used.")
 
 def train():
     dpath = os.path.join(DATA_DIR, FLAGS.dataset)
     logging.info(f'Loading Dataset from {dpath}')
-    train_dataset = TrajectoryDataset(dpath, block_size=1)
-    model = FFNet()
+    train_dataset = TrajectoryDataset(dpath, block_size=FLAGS.block_size)
+    mconf = GPTConfig(
+        obs_size=train_dataset.observation_size, 
+        action_size=train_dataset.action_size, 
+        block_size=train_dataset.block_size,
+        n_layer=8, n_head=8, n_embd=512,
+    )
+    model = GPT(mconf)
     tconf = TrainerConfig(
         batch_size=FLAGS.batch_size,
         max_epochs=FLAGS.max_epochs, 

@@ -4,30 +4,30 @@ import numpy as np
 from torch.utils.data import Dataset
 
 OBS_KEYS = [
-    'walker/actuator_activation',
-    'walker/appendages_pos',
-    'walker/body_height',
-    'walker/end_effectors_pos',
+    # 'walker/actuator_activation',
+    # 'walker/appendages_pos',
+    # 'walker/body_height',
+    # 'walker/end_effectors_pos',
     'walker/joints_pos',
-    'walker/joints_vel',
-    'walker/sensors_accelerometer',
-    'walker/sensors_gyro',
-    'walker/sensors_torque',
-    'walker/sensors_touch',
-    'walker/sensors_velocimeter',
-    'walker/world_zaxis',
+    # 'walker/joints_vel',
+    # 'walker/sensors_accelerometer',
+    # 'walker/sensors_gyro',
+    # 'walker/sensors_torque',
+    # 'walker/sensors_touch',
+    # 'walker/sensors_velocimeter',
+    # 'walker/world_zaxis',
     # 'walker/clip_id',
-    'walker/reference_rel_joints',
-    'walker/reference_rel_bodies_pos_global',
-    'walker/reference_rel_bodies_quats',
-    'walker/reference_rel_bodies_pos_local',
-    'walker/reference_ego_bodies_quats',
-    'walker/reference_rel_root_quat',
-    'walker/reference_rel_root_pos_local',
-    'walker/reference_appendages_pos',
-    'walker/velocimeter_control',
-    'walker/gyro_control',
-    'walker/joints_vel_control',
+    # 'walker/reference_rel_joints',
+    # 'walker/reference_rel_bodies_pos_global',
+    # 'walker/reference_rel_bodies_quats',
+    # 'walker/reference_rel_bodies_pos_local',
+    # 'walker/reference_ego_bodies_quats',
+    # 'walker/reference_rel_root_quat',
+    # 'walker/reference_rel_root_pos_local',
+    # 'walker/reference_appendages_pos',
+    # 'walker/velocimeter_control',
+    # 'walker/gyro_control',
+    # 'walker/joints_vel_control',
     # 'walker/time_in_clip',
 ]
 
@@ -40,16 +40,26 @@ class TrajectoryDataset(Dataset):
         self.actions = dset['actions'][...]
         # self.observations = np.eye(self.actions.shape[0], dtype=np.float32)
 
+    @property
+    def observation_size(self):
+        """ Dimension of each observation vector. """
+        return self.observations.shape[1]
+
+    @property
+    def action_size(self):
+        """ Dimension of each action vector. """
+        return self.actions.shape[1]
+
     def __len__(self):
-        return self.actions.shape[0]
+        return self.actions.shape[0] - self.block_size
 
     def __getitem__(self, idx):
-        x = self.observations[idx]
-        y = self.actions[idx]
+        x = self.observations[idx:idx + self.block_size]
+        y = self.actions[idx:idx + self.block_size]
         return x, y
 
 
 if __name__ == "__main__":
-    d = TrajectoryDataset('data/complete.hdf5', block_size=16)
+    d = TrajectoryDataset('data/complete.hdf5', block_size=4)
     print(len(d))
-    print(d[0][0].shape)
+    print(d[0])
