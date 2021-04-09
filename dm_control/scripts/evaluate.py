@@ -2,14 +2,16 @@ import torch
 import os
 import numpy as np
 from solver import build_env
-from model import FFNet
+from model import FFNet, GPT, GPTConfig
 from dm_control import viewer
 from dataset import OBS_KEYS
 from absl import flags, logging, app
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string("ref_actions_path", 'pt/overkill4/default/opt_acts_0.npy', 'Path to load reference actions.')
-flags.DEFINE_string("load_model_path", 'saved_model.pt', "Path to load the saved model from.")
+flags.DEFINE_string("exp_dir", '.', "Path to directory containing saved files.")
+flags.DEFINE_string("model_fname", 'saved_model.pt', "Filename of model to load (in exp_dir)")
+flags.DEFINE_string("config_fname", 'saved_model_config.json', "Filename of config to load (in exp_dir)")
 
 
 def build_observation(time_step):
@@ -21,7 +23,7 @@ def build_observation(time_step):
             feature = feature[:, np.newaxis]
         feats.append(feature)
     full_obs = np.concatenate(feats, axis=1)        
-    return torch.Tensor(full_obs)
+    return full_obs
 
 def build_onehot_observation(episode_step):
     obs = np.zeros((1,152), dtype=np.float32)
@@ -63,22 +65,39 @@ def run_episode_with_reference_actions(env, model, reference_actions):
     print("L2 Norm between reference_acts and model's actions: {:.5f}".format(np.mean(norms)))
     return J, episode_steps
 
-def run_episode(env, model):
+def run_episode(env, model, block_size):
     time_step = env.reset()
     J = 0
     episode_steps = 0
+    obs_queue = []
+    # Build the context
+    for _ in range(block_size):
+        obs = build_observation(time_step)
+        obs_queue.append(obs)
+        time_step = env.step(np.zeros(56))
+        # Reset the walker to the current reference frame
+        env._task._set_walker(env.physics)
+    assert len(obs_queue) == block_size
+
     while not time_step.last():
         obs = build_observation(time_step)
-        act, _ = model(obs)
-        act = act.cpu().numpy()
+        obs_queue.append(obs)
+        obs_queue.pop(0)
+        obs_tt = torch.Tensor(np.stack(obs_queue, axis=1))
+        act, _ = model(obs_tt)
+        act = act.squeeze()[-1].cpu().numpy() # (1,4,56) ==> (56,)
         time_step = env.step(act)
         J += time_step.reward
         episode_steps += 1
     return J, episode_steps
 
-def load_model(model_path):
-    model = FFNet()
-    model.load_state_dict(torch.load(model_path))
+def load_model():
+    # model = FFNet()
+    config_path = os.path.join(FLAGS.exp_dir, FLAGS.config_fname)
+    model_path = os.path.join(FLAGS.exp_dir, FLAGS.model_fname)
+    mconf = GPTConfig.from_json(config_path)
+    model = GPT(mconf)
+    model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
     return model
 
 def get_env():
@@ -99,11 +118,12 @@ def evaluate(model, reference_actions=None):
         if reference_actions:
             run_episode_with_reference_actions(env, model, reference_actions=np.load(reference_actions))
         else:
-            J, episode_steps = run_episode(env, model)
+            J, episode_steps = run_episode(env, model, block_size=4)
             logging.info('Episode Cost: {:.2f} Steps: {}'.format(J, episode_steps))
+    env.close()
 
 def main(argv):
-    model = load_model(FLAGS.load_model_path)
+    model = load_model()
     evaluate(model)
     # visualize(model)
 
