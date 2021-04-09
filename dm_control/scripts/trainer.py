@@ -7,6 +7,7 @@ so nothing in this file really has anything to do with GPT specifically.
 
 import math
 import logging
+import time
 
 from tqdm import tqdm
 import numpy as np
@@ -72,8 +73,9 @@ class Trainer:
                                 num_workers=config.num_workers)
 
             losses = []
-            pbar = tqdm(enumerate(loader), total=len(loader)) if is_train else enumerate(loader)
-            for it, (x, y) in pbar:
+            start = time.time()
+            # pbar = tqdm(enumerate(loader), total=len(loader)) if is_train else enumerate(loader)
+            for it, (x, y) in enumerate(loader):
 
                 # place data on the correct device
                 x = x.to(self.device)
@@ -110,7 +112,10 @@ class Trainer:
                         lr = config.learning_rate
 
                     # report progress
-                    pbar.set_description(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. lr {lr:e}")
+                    if (it+1) % 101 == 0:
+                        ips = it/(time.time()-start)
+                        logging.info(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. lr {lr:e} iters/sec {ips:.3f}")
+                    # pbar.set_description(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. lr {lr:e}")
 
             if not is_train:
                 test_loss = float(np.mean(losses))

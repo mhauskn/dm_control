@@ -11,6 +11,7 @@ DATA_DIR = os.environ.get('PT_DATA_DIR', 'data')
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string("checkpoint_path", 'saved_model.pt', 'Path to save model checkpoints')
+flags.DEFINE_string("config_path", 'saved_model_config.json', 'Path to save model config')
 flags.DEFINE_string("dataset", 'single_episode.hdf5', 'Name of dataset (assumed inside of data_dir).')
 flags.DEFINE_integer("max_epochs", 10, "Maximum training epochs.")
 flags.DEFINE_integer("batch_size", 64, "Batch size used during training.")
@@ -28,6 +29,8 @@ def train():
         block_size=train_dataset.block_size,
         n_layer=8, n_head=8, n_embd=512,
     )
+    # Save the config to a json file
+    mconf.to_json(os.path.join(OUTPUT_DIR, FLAGS.config_path))
     model = GPT(mconf)
     tconf = TrainerConfig(
         batch_size=FLAGS.batch_size,
@@ -42,7 +45,15 @@ def train():
     trainer.train()
     return model
 
+def log_flags(flags):
+    """ Logs the value of each of the flags. """
+    for k in dir(flags):
+        if k != '?':
+            flag = 'FLAGS.{}'.format(k)
+            logging.info('{}: {}'.format(flag, eval(flag)))
+
 def main(argv):
+    log_flags(FLAGS)
     model = train()
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ GPT model:
 """
 
 import math
-
+import json
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -28,6 +28,16 @@ class GPTConfig:
         self.block_size = block_size
         for k,v in kwargs.items():
             setattr(self, k, v)
+
+    def to_json(self, output_fname):
+        with open(output_fname, 'w') as f:
+            f.write(json.dumps(self.__dict__))
+    
+    @staticmethod
+    def from_json(fname):
+        with open(fname, 'r') as f:
+            kwargs = json.loads(f.read())
+            return GPTConfig(**kwargs)
 
 class GPT1Config(GPTConfig):
     """ GPT-1 like network roughly 125M params """
