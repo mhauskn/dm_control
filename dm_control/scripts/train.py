@@ -18,16 +18,24 @@ flags.DEFINE_integer("batch_size", 64, "Batch size used during training.")
 flags.DEFINE_float("learning_rate", .0001, "Learning rate")
 flags.DEFINE_float("grad_norm_clip", 5.0, "Clip Gradient Norm")
 flags.DEFINE_integer("block_size", 4, "Size of history/context used.")
+flags.DEFINE_integer("gpt_layers", 8, "Number of layers in GPT Model")
+flags.DEFINE_integer("gpt_heads", 8, "Number of heads in GPT Model")
+flags.DEFINE_integer("gpt_embd", 512, "Size of GPT Embed")
+flags.DEFINE_list("observables", "joints_pos, joints_vel", "List of observation features to use.")
 
 def train():
-    dpath = os.path.join(DATA_DIR, FLAGS.dataset)
-    logging.info(f'Loading Dataset from {dpath}')
-    train_dataset = TrajectoryDataset(dpath, block_size=FLAGS.block_size)
+    train_dataset = TrajectoryDataset(
+        h5py_file=os.path.join(DATA_DIR, FLAGS.dataset),
+        block_size=FLAGS.block_size,
+        observables=FLAGS.observables,
+    )
     mconf = GPTConfig(
         obs_size=train_dataset.observation_size, 
         action_size=train_dataset.action_size, 
         block_size=train_dataset.block_size,
-        n_layer=8, n_head=8, n_embd=512,
+        n_layer=FLAGS.gpt_layers,
+        n_head=FLAGS.gpt_heads, 
+        n_embd=FLAGS.gpt_embd,
     )
     # Save the config to a json file
     mconf.to_json(os.path.join(OUTPUT_DIR, FLAGS.config_path))

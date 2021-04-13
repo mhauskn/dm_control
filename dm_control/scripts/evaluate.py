@@ -12,12 +12,17 @@ flags.DEFINE_string("ref_actions_path", 'pt/overkill4/default/opt_acts_0.npy', '
 flags.DEFINE_string("exp_dir", '.', "Path to directory containing saved files.")
 flags.DEFINE_string("model_fname", 'saved_model.pt', "Filename of model to load (in exp_dir)")
 flags.DEFINE_string("config_fname", 'saved_model_config.json', "Filename of config to load (in exp_dir)")
+flags.DEFINE_list("observables", "joints_pos, joints_vel", "List of observation features to use.")
 
+def get_observables():
+    observables = ['walker/' + o for o in FLAGS.observables]
+    sorted(observables)
+    return observables
 
 def build_observation(time_step):
     obs = time_step.observation
     feats = []
-    for k in OBS_KEYS:
+    for k in get_observables():
         feature = np.array(obs[k], dtype=np.float32, copy=True)
         if feature.ndim < 2:
             feature = feature[:, np.newaxis]

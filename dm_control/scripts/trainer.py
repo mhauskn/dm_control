@@ -112,9 +112,9 @@ class Trainer:
                         lr = config.learning_rate
 
                     # report progress
-                    if (it+1) % 101 == 0:
-                        ips = it/(time.time()-start)
-                        logging.info(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. lr {lr:e} iters/sec {ips:.3f}")
+                    # if (it+1) % 101 == 0:
+            ips = it/(time.time()-start)
+            logging.info(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. lr {lr:e} iters/sec {ips:.3f}")
                     # pbar.set_description(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. lr {lr:e}")
 
             if not is_train:
