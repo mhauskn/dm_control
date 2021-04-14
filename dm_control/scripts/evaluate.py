@@ -5,6 +5,7 @@ from solver import build_env
 from model import FFNet, GPT, GPTConfig
 from dm_control import viewer
 from dataset import OBS_KEYS
+from collections import deque
 from absl import flags, logging, app
 
 FLAGS = flags.FLAGS
@@ -30,71 +31,111 @@ def build_observation(time_step):
     full_obs = np.concatenate(feats, axis=1)        
     return full_obs
 
-def build_onehot_observation(episode_step):
-    obs = np.zeros((1,152), dtype=np.float32)
-    obs[0,episode_step] = 1.
-    obs = torch.Tensor(obs)
-    return obs
+# def build_onehot_observation(episode_step):
+#     obs = np.zeros((1,152), dtype=np.float32)
+#     obs[0,episode_step] = 1.
+#     obs = torch.Tensor(obs)
+#     return obs
 
-def visualize(model):
+@torch.no_grad()
+def visualize(env, model, reference_actions):
     """ Visualizes the model running on a trajectory. """
     model.eval()
-    env = get_env()
 
     def policy(time_step):
         global episode_steps
+        global obs_queue
+
         if time_step.first():
             episode_steps = 0
-        episode_steps += 1
+            obs_queue = deque()
+
         obs = build_observation(time_step)
-        with torch.no_grad():
-            act, _ = model(obs)
-        return act.cpu().numpy()
+        obs_queue.append(obs)
+
+        if len(obs_queue) >= model.block_size:
+            obs_tt = torch.FloatTensor(obs_queue)
+            act, _ = model(obs_tt)
+            act = act.squeeze()[-1].cpu().numpy()
+            obs_queue.popleft()
+        else:
+            act = reference_actions[episode_steps]
+
+        episode_steps += 1
+        return act
+
     viewer.launch(env, policy)
 
-def run_episode_with_reference_actions(env, model, reference_actions):
-    """ Runs the episode using the reference_actions but also compares the model's predictions. """
+
+def validate_reference_actions(env, reference_actions):
+    """ Ensure the reference actions take us through the episode without failure. """
+    assert env.task._termination_error_threshold <= 0.3
     time_step = env.reset()
-    J = 0
     episode_steps = 0
     norms = []
-    while not time_step.last():
-        obs = build_observation(time_step)
-        act, _ = model(obs)
-        act = act.cpu().numpy()
-        ref_act = reference_actions[episode_steps]
-        norms.append(np.linalg.norm(ref_act - act))
-        time_step = env.step(ref_act)
-        J += time_step.reward
-        episode_steps += 1
-    print("L2 Norm between reference_acts and model's actions: {:.5f}".format(np.mean(norms)))
-    return J, episode_steps
+    for idx, act in enumerate(reference_actions):
+        time_step = env.step(act)
+        if env.task._should_truncate:
+            logging.fatal(f'Episode validation failed at step {idx}')
+    logging.info(f'Successfully validated {FLAGS.ref_actions_path} on {FLAGS.clip_name} for {len(reference_actions)} steps')
 
-def run_episode(env, model, block_size):
+
+@torch.no_grad()
+def run_episode(env, model, reference_actions, start_step=0):
+    """ Runs an episode, using the reference actions only to build the necessary context. """
     time_step = env.reset()
     J = 0
     episode_steps = 0
-    obs_queue = []
-    # Build the context
-    for _ in range(block_size):
+    obs_queue = deque()
+
+    # Build the context using reference actions
+    for idx in range(max(model.block_size, start_step)):
         obs = build_observation(time_step)
         obs_queue.append(obs)
-        time_step = env.step(np.zeros(56))
-        # Reset the walker to the current reference frame
-        env._task._set_walker(env.physics)
-    assert len(obs_queue) == block_size
+        time_step = env.step(reference_actions[idx])
+    while len(obs_queue) > model.block_size:
+        obs_queue.popleft()
+    assert len(obs_queue) == model.block_size
 
     while not time_step.last():
         obs = build_observation(time_step)
         obs_queue.append(obs)
-        obs_queue.pop(0)
-        obs_tt = torch.Tensor(np.stack(obs_queue, axis=1))
+        obs_queue.popleft()
+        obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1))
         act, _ = model(obs_tt)
         act = act.squeeze()[-1].cpu().numpy() # (1,4,56) ==> (56,)
         time_step = env.step(act)
         J += time_step.reward
         episode_steps += 1
     return J, episode_steps
+
+
+@torch.no_grad()
+def run_episode_with_reference_actions(env, model, reference_actions):
+    """ Runs the episode using the reference_actions and computes the l2 norm between the
+        model and reference actions at each step. Returns the average norm.
+    """
+    time_step = env.reset()
+    J = 0
+    episode_steps = 0
+    norms = []
+    obs_queue = deque()
+
+    while not time_step.last():
+        ref_act = reference_actions[episode_steps]
+        obs = build_observation(time_step)
+        obs_queue.append(obs)
+        if len(obs_queue) >= model.block_size:
+            obs_tt = torch.FloatTensor(obs_queue)
+            act, _ = model(obs_tt)
+            act = act.cpu().numpy()
+            norms.append(np.linalg.norm(ref_act - act))
+            obs_queue.popleft()
+        time_step = env.step(ref_act)
+        J += time_step.reward
+        episode_steps += 1
+    return np.mean(norms)
+
 
 def load_model():
     # model = FFNet()
@@ -108,6 +149,7 @@ def load_model():
 def get_env():
     env = build_env(
         reward_type='termination',
+        ghost_offset=0,
         clip_name=FLAGS.clip_name,
         start_step=0,
         force_magnitude=0,
@@ -116,21 +158,32 @@ def get_env():
     )
     return env
 
-def evaluate(model, reference_actions=None):
+def evaluate(env, model, reference_actions):
     model.eval()
-    env = get_env()
-    with torch.no_grad():
-        if reference_actions:
-            run_episode_with_reference_actions(env, model, reference_actions=np.load(reference_actions))
-        else:
-            J, episode_steps = run_episode(env, model, block_size=4)
-            logging.info('Episode Cost: {:.2f} Steps: {}'.format(J, episode_steps))
+
+    # Evaluate action completion
+    for start_step in range(0, len(reference_actions)-50, 25):
+        J, episode_steps = run_episode(
+            env,
+            model, 
+            reference_actions,
+            start_step=start_step,
+        )
+        logging.info(f'{FLAGS.clip_name} start_step={start_step} steps_to_fall={episode_steps}')
+
+    # Evaluate similarity to reference actions
+    norm_diff = run_episode_with_reference_actions(env, model, reference_actions)
+    logging.info(f'{FLAGS.clip_name} ref_act_norm_diff={norm_diff:.5f}')
     env.close()
 
 def main(argv):
+    env = get_env()
     model = load_model()
-    evaluate(model)
-    # visualize(model)
+    ref_actions = np.load(FLAGS.ref_actions_path)
+    validate_reference_actions(env, ref_actions)
+
+    evaluate(env, model, ref_actions)
+    visualize(env, model, ref_actions)
 
 if __name__ == "__main__":
     app.run(main)
