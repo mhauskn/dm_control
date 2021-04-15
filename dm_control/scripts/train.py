@@ -36,6 +36,7 @@ def train():
         n_layer=FLAGS.gpt_layers,
         n_head=FLAGS.gpt_heads, 
         n_embd=FLAGS.gpt_embd,
+        observables=FLAGS.observables,
     )
     # Save the config to a json file
     mconf.to_json(os.path.join(OUTPUT_DIR, FLAGS.config_path))

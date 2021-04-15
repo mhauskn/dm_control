@@ -127,6 +127,7 @@ class GPT(nn.Module):
         self.head = nn.Linear(config.n_embd, config.action_size, bias=False)
 
         self.block_size = config.block_size
+        self.observables = config.observables
         self.apply(self._init_weights)
         self.criterion = nn.MSELoss()
 
