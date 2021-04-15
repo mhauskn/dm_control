@@ -7,6 +7,7 @@ from dm_control import viewer
 from dataset import OBS_KEYS
 from collections import deque
 from absl import flags, logging, app
+import glob
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string("ref_actions_path", 'pt/overkill4/default/opt_acts_0.npy', 'Path to load reference actions.')
@@ -71,7 +72,7 @@ def validate_reference_actions(env, reference_actions):
         time_step = env.step(act)
         if env.task._should_truncate:
             logging.fatal(f'Ref_action validation failed at step {idx}')
-    logging.info(f'Successfully validated ref_actions on {get_clip_name(env)} for {len(reference_actions)} steps')
+    logging.debug(f'Successfully validated ref_actions on {get_clip_name(env)} for {len(reference_actions)} steps')
 
 
 @torch.no_grad()
@@ -141,8 +142,8 @@ def load_model(config_path, model_path):
 
 def evaluate(env, model, reference_actions):
     model.eval()
-
     # Evaluate action completion
+    steps2term = []
     for start_step in range(0, len(reference_actions)-50, 25):
         J, episode_steps = run_episode(
             env,
@@ -150,30 +151,66 @@ def evaluate(env, model, reference_actions):
             reference_actions,
             start_step=start_step,
         )
-        logging.info(f'{get_clip_name(env)} start_step={start_step} steps_to_fall={episode_steps}')
+        steps2term.append(episode_steps)
+        logging.debug(f'{get_clip_name(env)} start_step={start_step} steps_to_termination={episode_steps}')
+    avg_steps2term = sum(steps2term) / len(steps2term)
 
     # Evaluate similarity to reference actions
     norm_diff = run_episode_with_reference_actions(env, model, reference_actions)
-    logging.info(f'{get_clip_name(env)} ref_act_norm_diff={norm_diff:.5f}')
-    env.close()
+    logging.debug(f'{get_clip_name(env)} ref_act_norm_diff={norm_diff:.5f}')
+    return avg_steps2term, norm_diff
+
+
+def comprehensive_eval(eval_dir, model):
+    """ Loads all clips in the evaluation dir and runs evaluation on each. """
+
+    def parse_path(ref_actions_path):
+        basename = os.path.basename(ref_action_path)
+        basename = os.path.splitext(basename)[0] # Remove the .npy extension
+        res = basename.split('_start_step_')
+        clip_name = res[0]
+        start_step = int(res[1])
+        return clip_name, start_step
+
+    for ref_action_path in glob.glob(os.path.join(eval_dir, '*.npy')):
+        ref_actions = np.load(ref_action_path)
+        clip_name, start_step = parse_path(ref_action_path)
+        env = build_env(
+            reward_type='termination',
+            ghost_offset=0,
+            clip_name=clip_name,
+            start_step=start_step,
+            force_magnitude=0,
+            disable_observables=False,
+            termination_error_threshold=0.3,
+        )
+        validate_reference_actions(env, ref_actions)
+        steps2term, norm_diff = evaluate(env, model, ref_actions)
+        logging.info(f'Eval {clip_name}: steps2term={steps2term:.1f} norm_diff={norm_diff:.1f}')
+        env.close()
+
 
 def main(argv):
-    env = build_env(
-        reward_type='termination',
-        ghost_offset=0,
-        clip_name=FLAGS.clip_name,
-        start_step=0,
-        force_magnitude=0,
-        disable_observables=False,
-        termination_error_threshold=0.3,
-    )
     config_path = os.path.join(FLAGS.exp_dir, FLAGS.config_fname)
     model_path = os.path.join(FLAGS.exp_dir, FLAGS.model_fname)
     model = load_model(config_path, model_path)
-    ref_actions = np.load(FLAGS.ref_actions_path)
-    validate_reference_actions(env, ref_actions)
-    evaluate(env, model, ref_actions)
-    # visualize(env, model, ref_actions)
+    comprehensive_eval('data/eval', model)
+    # env = build_env(
+    #     reward_type='termination',
+    #     ghost_offset=0,
+    #     clip_name=FLAGS.clip_name,
+    #     start_step=0,
+    #     force_magnitude=0,
+    #     disable_observables=False,
+    #     termination_error_threshold=0.3,
+    # )
+    # config_path = os.path.join(FLAGS.exp_dir, FLAGS.config_fname)
+    # model_path = os.path.join(FLAGS.exp_dir, FLAGS.model_fname)
+    # model = load_model(config_path, model_path)
+    # ref_actions = np.load(FLAGS.ref_actions_path)
+    # validate_reference_actions(env, ref_actions)
+    # evaluate(env, model, ref_actions)
+    # # visualize(env, model, ref_actions)
 
 if __name__ == "__main__":
     app.run(main)

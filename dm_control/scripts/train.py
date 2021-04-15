@@ -4,6 +4,7 @@ import numpy as np
 from trainer import Trainer, TrainerConfig
 from model import FFNet, GPT, GPTConfig
 from dataset import TrajectoryDataset
+from evaluate import comprehensive_eval
 from absl import flags, logging, app
 
 OUTPUT_DIR = os.environ.get('PT_OUTPUT_DIR', '.')
@@ -64,6 +65,8 @@ def log_flags(flags):
 def main(argv):
     log_flags(FLAGS)
     model = train()
+    eval_dir = os.path.join(DATA_DIR, 'eval')
+    comprehensive_eval(eval_dir, model)
 
 if __name__ == "__main__":
     app.run(main)
