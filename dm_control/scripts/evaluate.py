@@ -15,6 +15,7 @@ flags.DEFINE_string("exp_dir", '.', "Path to directory containing saved files.")
 flags.DEFINE_string("model_fname", 'saved_model.pt', "Filename of model to load (in exp_dir)")
 flags.DEFINE_string("config_fname", 'saved_model_config.json', "Filename of config to load (in exp_dir)")
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def observables_sorted(observables):
     observables = ['walker/' + o for o in observables if not o.startswith('walker/')]
@@ -49,7 +50,7 @@ def visualize(env, model, reference_actions):
         obs_queue.append(obs)
 
         if len(obs_queue) >= model.block_size:
-            obs_tt = torch.FloatTensor(obs_queue)
+            obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1)).to(device)
             act, _ = model(obs_tt)
             act = act.squeeze()[-1].cpu().numpy()
             obs_queue.popleft()
@@ -96,7 +97,7 @@ def run_episode(env, model, reference_actions, start_step=0):
         obs = build_observation(time_step, model.observables)
         obs_queue.append(obs)
         obs_queue.popleft()
-        obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1))
+        obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1)).to(device)
         act, _ = model(obs_tt)
         act = act.squeeze()[-1].cpu().numpy() # (1,4,56) ==> (56,)
         time_step = env.step(act)
@@ -121,7 +122,7 @@ def run_episode_with_reference_actions(env, model, reference_actions):
         obs = build_observation(time_step, model.observables)
         obs_queue.append(obs)
         if len(obs_queue) >= model.block_size:
-            obs_tt = torch.FloatTensor(obs_queue)
+            obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1)).to(device)
             act, _ = model(obs_tt)
             act = act.cpu().numpy()
             norms.append(np.linalg.norm(ref_act - act))
@@ -137,7 +138,7 @@ def get_clip_name(env):
 def load_model(config_path, model_path):
     mconf = GPTConfig.from_json(config_path)
     model = GPT(mconf)
-    model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+    model.load_state_dict(torch.load(model_path, map_location=device))
     return model
 
 def evaluate(env, model, reference_actions):
