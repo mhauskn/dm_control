@@ -68,16 +68,20 @@ class TrajectoryDataset(Dataset):
         all_dones = []
         episode_ends = np.nonzero(self.dones)[0]
         episode_start = 0
+        episodes_removed = 0
         for episode_end in episode_ends:
             ep_length = episode_end - episode_start + 1
             if ep_length >= self.block_size:
                 all_obs.append(self.observations[episode_start: episode_end+1])
                 all_acts.append(self.actions[episode_start: episode_end+1])
                 all_dones.append(self.dones[episode_start: episode_end+1])
+            else:
+                episodes_removed += 1
             episode_start = episode_end + 1
         self.observations = np.concatenate(all_obs)
         self.actions = np.concatenate(all_acts)
         self.dones = np.concatenate(all_dones)
+        logging.info(f"Removed {episodes_removed} episodes shorter than {self.block_size} steps.")
 
 
     def _create_logical_offset(self):

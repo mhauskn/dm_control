@@ -112,7 +112,7 @@ class Trainer:
                         lr = config.learning_rate
 
                     # report progress
-                    if (it+1) % 101 == 0:
+                    if it % 100 == 0:
                         ips = it/(time.time()-start)
                         avg_loss = float(np.mean(losses))
                         logging.info(f"epoch {epoch+1} iter {it}: train loss {avg_loss:.5f}. lr {lr:e} iters/sec {ips:.3f}")
