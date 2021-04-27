@@ -212,17 +212,44 @@ class GPT(nn.Module):
         return logits, loss
 
 
+class FFConfig:
+    """ base GPT config, params common to all GPT versions """
+    hidden_size = 1024
+
+    def __init__(self, obs_size, action_size, block_size, **kwargs):
+        assert block_size == 1, f"FFNet requires block_size=1."
+        self.obs_size = obs_size
+        self.action_size = action_size
+        self.block_size = block_size
+        for k,v in kwargs.items():
+            setattr(self, k, v)
+
+    def to_json(self, output_fname):
+        with open(output_fname, 'w') as f:
+            f.write(json.dumps(self.__dict__))
+    
+    @staticmethod
+    def from_json(fname):
+        with open(fname, 'r') as f:
+            kwargs = json.loads(f.read())
+            return FFConfig(**kwargs)
+
+
 class FFNet(nn.Module):
-    def __init__(self):
+    """ Fully connected baseline. Modeled after the network used in Comic. """
+
+    def __init__(self, config):
         super().__init__()
         self.mlp = nn.Sequential(
-            nn.Linear(56, 1024),
+            nn.Linear(config.obs_size, config.hidden_size),
             nn.ReLU(),
-            nn.Linear(1024, 1024),
+            nn.Linear(config.hidden_size, config.hidden_size),
             nn.ReLU(),
-            nn.Linear(1024, 56)
+            nn.Linear(config.hidden_size, config.action_size)
         )
         self.criterion = nn.MSELoss()
+        self.block_size = config.block_size
+        self.observables = config.observables
 
 
     def configure_optimizers(self, train_config):
@@ -231,7 +258,6 @@ class FFNet(nn.Module):
 
 
     def forward(self, x, targets=None):
-        # logits = torch.tanh(self.mlp(x))
         logits = self.mlp(x)
 
         loss = None

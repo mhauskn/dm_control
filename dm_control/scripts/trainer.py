@@ -97,7 +97,7 @@ class Trainer:
 
                     # decay the learning rate based on our progress
                     if config.lr_decay:
-                        self.tokens += (y >= 0).sum() # number of tokens processed this step (i.e. label is not -100)
+                        self.tokens += y.size(0) * y.size(1) #(y >= 0).sum() # number of tokens processed this step (i.e. label is not -100)
                         if self.tokens < config.warmup_tokens:
                             # linear warmup
                             lr_mult = float(self.tokens) / float(max(1, config.warmup_tokens))
@@ -112,9 +112,11 @@ class Trainer:
                         lr = config.learning_rate
 
                     # report progress
-                    # if (it+1) % 101 == 0:
-            ips = it/(time.time()-start)
-            logging.info(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. lr {lr:e} iters/sec {ips:.3f}")
+                    if (it+1) % 101 == 0:
+                        ips = it/(time.time()-start)
+                        avg_loss = float(np.mean(losses))
+                        logging.info(f"epoch {epoch+1} iter {it}: train loss {avg_loss:.5f}. lr {lr:e} iters/sec {ips:.3f}")
+                        losses.clear()
                     # pbar.set_description(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. lr {lr:e}")
 
             if not is_train:

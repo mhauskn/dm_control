@@ -14,6 +14,7 @@ flags.DEFINE_string("ref_actions_path", 'pt/overkill4/default/opt_acts_0.npy', '
 flags.DEFINE_string("exp_dir", '.', "Path to directory containing saved files.")
 flags.DEFINE_string("model_fname", 'saved_model.pt', "Filename of model to load (in exp_dir)")
 flags.DEFINE_string("config_fname", 'saved_model_config.json', "Filename of config to load (in exp_dir)")
+flags.DEFINE_boolean("visualize", False, "Visualize the policy")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -79,6 +80,9 @@ def validate_reference_actions(env, reference_actions):
 @torch.no_grad()
 def run_episode(env, model, reference_actions, start_step=0):
     """ Runs an episode, using the reference actions only to build the necessary context. """
+    if len(reference_actions) <= max(model.block_size, start_step):
+        # Clip is too short to build adequate context for the model
+        return 0, 0
     time_step = env.reset()
     J = 0
     episode_steps = 0
@@ -141,28 +145,23 @@ def load_model(config_path, model_path):
     model.load_state_dict(torch.load(model_path, map_location=device))
     return model
 
-def evaluate(env, model, reference_actions):
+def evaluate(env, model, reference_actions, preferred_start_step=32):
     model.eval()
     # Evaluate action completion
     steps2term = []
-    for start_step in range(0, len(reference_actions)-50, 25):
-        J, episode_steps = run_episode(
-            env,
-            model, 
-            reference_actions,
-            start_step=start_step,
-        )
-        steps2term.append(episode_steps)
-        logging.debug(f'{get_clip_name(env)} start_step={start_step} steps_to_termination={episode_steps}')
-    avg_steps2term = sum(steps2term) / len(steps2term)
-
+    J, episode_steps = run_episode(
+        env,
+        model, 
+        reference_actions,
+        start_step=preferred_start_step,
+    )
     # Evaluate similarity to reference actions
     norm_diff = run_episode_with_reference_actions(env, model, reference_actions)
     logging.debug(f'{get_clip_name(env)} ref_act_norm_diff={norm_diff:.5f}')
-    return avg_steps2term, norm_diff
+    return episode_steps, norm_diff
 
 
-def comprehensive_eval(eval_dir, model):
+def comprehensive_eval(eval_dir, model, visualize_policy=False):
     """ Loads all clips in the evaluation dir and runs evaluation on each. """
 
     def parse_path(ref_actions_path):
@@ -187,7 +186,9 @@ def comprehensive_eval(eval_dir, model):
         )
         validate_reference_actions(env, ref_actions)
         steps2term, norm_diff = evaluate(env, model, ref_actions)
-        logging.info(f'Eval {clip_name}: steps2term={steps2term:.1f} norm_diff={norm_diff:.1f}')
+        logging.info(f'Eval {clip_name}: steps2term={steps2term} norm_diff={norm_diff:.1f}')
+        if visualize_policy:
+            visualize(env, model, ref_actions)
         env.close()
 
 
@@ -195,7 +196,7 @@ def main(argv):
     config_path = os.path.join(FLAGS.exp_dir, FLAGS.config_fname)
     model_path = os.path.join(FLAGS.exp_dir, FLAGS.model_fname)
     model = load_model(config_path, model_path)
-    comprehensive_eval('data/eval', model)
+    comprehensive_eval('data/eval', model, visualize_policy=FLAGS.visualize)
     # env = build_env(
     #     reward_type='termination',
     #     ghost_offset=0,
@@ -211,7 +212,7 @@ def main(argv):
     # ref_actions = np.load(FLAGS.ref_actions_path)
     # validate_reference_actions(env, ref_actions)
     # evaluate(env, model, ref_actions)
-    # # visualize(env, model, ref_actions)
+    # visualize(env, model, ref_actions)
 
 if __name__ == "__main__":
     app.run(main)

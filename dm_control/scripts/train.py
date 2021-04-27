@@ -2,7 +2,7 @@ import torch
 import os
 import numpy as np
 from trainer import Trainer, TrainerConfig
-from model import FFNet, GPT, GPTConfig
+from model import FFNet, FFConfig, GPT, GPTConfig
 from dataset import TrajectoryDataset
 from evaluate import comprehensive_eval
 from absl import flags, logging, app
@@ -23,6 +23,8 @@ flags.DEFINE_integer("gpt_layers", 8, "Number of layers in GPT Model")
 flags.DEFINE_integer("gpt_heads", 8, "Number of heads in GPT Model")
 flags.DEFINE_integer("gpt_embd", 512, "Size of GPT Embed")
 flags.DEFINE_list("observables", "joints_pos, joints_vel", "List of observation features to use.")
+flags.DEFINE_integer("warmup_tokens", 512*20, "Tokens until LR is ramped up to full value")
+# flags.DEFINE_integer("final_tokens", 10*200000, "Tokens until we reach fully decaysed LR")
 
 def train():
     train_dataset = TrajectoryDataset(
@@ -30,7 +32,8 @@ def train():
         block_size=FLAGS.block_size,
         observables=FLAGS.observables,
     )
-    mconf = GPTConfig(
+    logging.info(f"Dataset length: {len(train_dataset)}")
+    mconf = FFConfig( #GPTConfig(
         obs_size=train_dataset.observation_size, 
         action_size=train_dataset.action_size, 
         block_size=train_dataset.block_size,
@@ -41,15 +44,21 @@ def train():
     )
     # Save the config to a json file
     mconf.to_json(os.path.join(OUTPUT_DIR, FLAGS.config_path))
-    model = GPT(mconf)
+    # model = GPT(mconf)
+    model = FFNet(mconf)
+
+
+    final_tokens = FLAGS.max_epochs * len(train_dataset) * FLAGS.block_size
+    logging.info(f"Using final_tokens: {final_tokens}")
     tconf = TrainerConfig(
         batch_size=FLAGS.batch_size,
         max_epochs=FLAGS.max_epochs, 
         ckpt_path=os.path.join(OUTPUT_DIR, FLAGS.checkpoint_path),
         learning_rate=FLAGS.learning_rate,
-        betas=(0.9, 0.999),
         grad_norm_clip=FLAGS.grad_norm_clip,
-        lr_decay=False,
+        lr_decay=True,
+        warmup_tokens=FLAGS.warmup_tokens,
+        final_tokens=final_tokens,
     )
     trainer = Trainer(model, train_dataset, None, tconf)
     trainer.train()
