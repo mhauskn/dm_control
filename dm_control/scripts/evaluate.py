@@ -2,7 +2,7 @@ import torch
 import os
 import numpy as np
 from solver import build_env
-from model import FFNet, GPT, GPTConfig
+from model import FFNet, FFConfig, GPT, GPTConfig
 from dm_control import viewer
 from dataset import OBS_KEYS
 from collections import deque
@@ -15,6 +15,7 @@ flags.DEFINE_string("exp_dir", '.', "Path to directory containing saved files.")
 flags.DEFINE_string("model_fname", 'saved_model.pt', "Filename of model to load (in exp_dir)")
 flags.DEFINE_string("config_fname", 'saved_model_config.json', "Filename of config to load (in exp_dir)")
 flags.DEFINE_boolean("visualize", False, "Visualize the policy")
+flags.DEFINE_integer("context_steps", 32, "Number of steps used to build context.")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -35,7 +36,7 @@ def build_observation(time_step, observables):
     return full_obs
 
 @torch.no_grad()
-def visualize(env, model, reference_actions):
+def visualize(env, model, reference_actions, context_steps):
     """ Visualizes the model running on a trajectory. """
     model.eval()
 
@@ -49,12 +50,13 @@ def visualize(env, model, reference_actions):
 
         obs = build_observation(time_step, model.observables)
         obs_queue.append(obs)
+        while len(obs_queue) > model.block_size:
+            obs_queue.popleft()
 
-        if len(obs_queue) >= model.block_size:
+        if episode_steps >= max(model.block_size, context_steps):
             obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1)).to(device)
             act, _ = model(obs_tt)
             act = act.squeeze()[-1].cpu().numpy()
-            obs_queue.popleft()
         else:
             act = reference_actions[episode_steps]
 
@@ -78,9 +80,9 @@ def validate_reference_actions(env, reference_actions):
 
 
 @torch.no_grad()
-def run_episode(env, model, reference_actions, start_step=0):
+def run_episode(env, model, reference_actions, context_steps=0):
     """ Runs an episode, using the reference actions only to build the necessary context. """
-    if len(reference_actions) <= max(model.block_size, start_step):
+    if len(reference_actions) <= max(model.block_size, context_steps):
         # Clip is too short to build adequate context for the model
         return 0, 0
     time_step = env.reset()
@@ -89,7 +91,7 @@ def run_episode(env, model, reference_actions, start_step=0):
     obs_queue = deque()
 
     # Build the context using reference actions
-    for idx in range(max(model.block_size, start_step)):
+    for idx in range(max(model.block_size, context_steps)):
         obs = build_observation(time_step, model.observables)
         obs_queue.append(obs)
         time_step = env.step(reference_actions[idx])
@@ -129,7 +131,8 @@ def run_episode_with_reference_actions(env, model, reference_actions):
             obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1)).to(device)
             act, _ = model(obs_tt)
             act = act.cpu().numpy()
-            norms.append(np.linalg.norm(ref_act - act))
+            mse_loss = np.mean((ref_act - act)**2)
+            norms.append(mse_loss)
             obs_queue.popleft()
         time_step = env.step(ref_act)
         J += time_step.reward
@@ -140,12 +143,14 @@ def get_clip_name(env):
     return env.task._dataset.ids[0]
 
 def load_model(config_path, model_path):
-    mconf = GPTConfig.from_json(config_path)
-    model = GPT(mconf)
+    # mconf = GPTConfig.from_json(config_path)
+    # model = GPT(mconf)
+    mconf = FFConfig.from_json(config_path)
+    model = FFNet(mconf)
     model.load_state_dict(torch.load(model_path, map_location=device))
     return model
 
-def evaluate(env, model, reference_actions, preferred_start_step=32):
+def evaluate(env, model, reference_actions, context_steps):
     model.eval()
     # Evaluate action completion
     steps2term = []
@@ -153,15 +158,15 @@ def evaluate(env, model, reference_actions, preferred_start_step=32):
         env,
         model, 
         reference_actions,
-        start_step=preferred_start_step,
+        context_steps=context_steps,
     )
     # Evaluate similarity to reference actions
     norm_diff = run_episode_with_reference_actions(env, model, reference_actions)
-    logging.debug(f'{get_clip_name(env)} ref_act_norm_diff={norm_diff:.5f}')
+    logging.debug(f'{get_clip_name(env)} mse_loss={norm_diff:.5f}')
     return episode_steps, norm_diff
 
 
-def comprehensive_eval(eval_dir, model, visualize_policy=False):
+def comprehensive_eval(eval_dir, model, visualize_policy=False, context_steps=32):
     """ Loads all clips in the evaluation dir and runs evaluation on each. """
 
     def parse_path(ref_actions_path):
@@ -185,10 +190,10 @@ def comprehensive_eval(eval_dir, model, visualize_policy=False):
             termination_error_threshold=0.3,
         )
         validate_reference_actions(env, ref_actions)
-        steps2term, norm_diff = evaluate(env, model, ref_actions)
-        logging.info(f'Eval {clip_name}: steps2term={steps2term} norm_diff={norm_diff:.1f}')
+        steps2term, norm_diff = evaluate(env, model, ref_actions, context_steps)
+        logging.info(f'Eval {clip_name}: steps2term={steps2term} mse_loss={norm_diff:.5f}')
         if visualize_policy:
-            visualize(env, model, ref_actions)
+            visualize(env, model, ref_actions, context_steps)
         env.close()
 
 
@@ -196,7 +201,10 @@ def main(argv):
     config_path = os.path.join(FLAGS.exp_dir, FLAGS.config_fname)
     model_path = os.path.join(FLAGS.exp_dir, FLAGS.model_fname)
     model = load_model(config_path, model_path)
-    comprehensive_eval('data/eval', model, visualize_policy=FLAGS.visualize)
+    comprehensive_eval('data/eval', model, 
+        visualize_policy=FLAGS.visualize,
+        context_steps=FLAGS.context_steps,
+    )
     # env = build_env(
     #     reward_type='termination',
     #     ghost_offset=0,
