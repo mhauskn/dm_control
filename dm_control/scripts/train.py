@@ -23,6 +23,7 @@ flags.DEFINE_integer("gpt_layers", 8, "Number of layers in GPT Model")
 flags.DEFINE_integer("gpt_heads", 8, "Number of heads in GPT Model")
 flags.DEFINE_integer("gpt_embd", 512, "Size of GPT Embed")
 flags.DEFINE_list("observables", "joints_pos, joints_vel", "List of observation features to use.")
+flags.DEFINE_boolean("lr_decay", False, "Decay learning rate.")
 flags.DEFINE_integer("warmup_tokens", 512*20, "Tokens until LR is ramped up to full value")
 # flags.DEFINE_integer("final_tokens", 10*200000, "Tokens until we reach fully decaysed LR")
 
@@ -56,7 +57,7 @@ def train():
         ckpt_path=os.path.join(OUTPUT_DIR, FLAGS.checkpoint_path),
         learning_rate=FLAGS.learning_rate,
         grad_norm_clip=FLAGS.grad_norm_clip,
-        lr_decay=True,
+        lr_decay=FLAGS.lr_decay,
         warmup_tokens=FLAGS.warmup_tokens,
         final_tokens=final_tokens,
     )
