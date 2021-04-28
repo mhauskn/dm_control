@@ -143,11 +143,29 @@ def get_clip_name(env):
     return env.task._dataset.ids[0]
 
 def load_model(config_path, model_path):
-    # mconf = GPTConfig.from_json(config_path)
-    # model = GPT(mconf)
-    mconf = FFConfig.from_json(config_path)
-    model = FFNet(mconf)
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    """ Not knowing exactly what model we may have saved, try to load both types. """
+    
+    def load_gpt():
+        try:
+            mconf = GPTConfig.from_json(config_path)
+            model = GPT(mconf)
+            model.load_state_dict(torch.load(model_path, map_location=device))        
+            logging.info("Successfully loaded GPT")
+            return model
+        except RuntimeError as e:
+            return None
+
+    def load_ffnet():
+        try:
+            mconf = FFConfig.from_json(config_path)
+            model = FFNet(mconf)
+            model.load_state_dict(torch.load(model_path, map_location=device))
+            logging.info("Successfully loaded FFNet")
+            return model
+        except RuntimeError as e:
+            return None
+
+    model = load_gpt() or load_ffnet()
     return model
 
 def evaluate(env, model, reference_actions, context_steps):

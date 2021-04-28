@@ -129,9 +129,10 @@ class GPT(nn.Module):
         self.block_size = config.block_size
         self.observables = config.observables
         self.apply(self._init_weights)
-        self.criterion = nn.MSELoss()
+        # self.criterion = nn.MSELoss()
+        self.criterion = nn.L1Loss()
 
-        logging.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
+        logging.info("%s number of parameters: %e", self.__class__.__name__, sum(p.numel() for p in self.parameters()))
 
     def get_block_size(self):
         return self.block_size
@@ -247,10 +248,12 @@ class FFNet(nn.Module):
             nn.ReLU(),
             nn.Linear(config.hidden_size, config.action_size)
         )
-        self.criterion = nn.MSELoss()
+        # self.criterion = nn.MSELoss()
+        self.criterion = nn.L1Loss()
         self.block_size = config.block_size
         self.observables = config.observables
 
+        logging.info("%s number of parameters: %e", self.__class__.__name__, sum(p.numel() for p in self.parameters()))
 
     def configure_optimizers(self, train_config):
         optimizer = torch.optim.AdamW(self.mlp.parameters(), lr=train_config.learning_rate, betas=train_config.betas)

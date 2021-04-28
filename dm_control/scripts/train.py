@@ -25,6 +25,7 @@ flags.DEFINE_integer("gpt_embd", 512, "Size of GPT Embed")
 flags.DEFINE_list("observables", "joints_pos, joints_vel", "List of observation features to use.")
 flags.DEFINE_boolean("lr_decay", False, "Decay learning rate.")
 flags.DEFINE_integer("warmup_tokens", 512*20, "Tokens until LR is ramped up to full value")
+flags.DEFINE_string("model", "gpt", "Choices: gpt/ffnet")
 # flags.DEFINE_integer("final_tokens", 10*200000, "Tokens until we reach fully decaysed LR")
 
 def train():
@@ -34,19 +35,31 @@ def train():
         observables=FLAGS.observables,
     )
     logging.info(f"Dataset length: {len(train_dataset)}")
-    mconf = FFConfig( #GPTConfig(
-        obs_size=train_dataset.observation_size, 
-        action_size=train_dataset.action_size, 
-        block_size=train_dataset.block_size,
-        n_layer=FLAGS.gpt_layers,
-        n_head=FLAGS.gpt_heads, 
-        n_embd=FLAGS.gpt_embd,
-        observables=FLAGS.observables,
-    )
+
+    if FLAGS.model == "gpt":
+        mconf = GPTConfig(
+            obs_size=train_dataset.observation_size, 
+            action_size=train_dataset.action_size, 
+            block_size=train_dataset.block_size,
+            n_layer=FLAGS.gpt_layers,
+            n_head=FLAGS.gpt_heads, 
+            n_embd=FLAGS.gpt_embd,
+            observables=FLAGS.observables,
+        )
+        model = GPT(mconf)
+    elif FLAGS.model == "ffnet":
+        mconf = FFConfig(
+            obs_size=train_dataset.observation_size, 
+            action_size=train_dataset.action_size, 
+            block_size=train_dataset.block_size,
+            observables=FLAGS.observables,
+        )
+        model = FFNet(mconf)
+    else:
+        raise TypeError(f'Unrecognized model type: {FLAGS.model}')
+
     # Save the config to a json file
     mconf.to_json(os.path.join(OUTPUT_DIR, FLAGS.config_path))
-    # model = GPT(mconf)
-    model = FFNet(mconf)
 
 
     final_tokens = FLAGS.max_epochs * len(train_dataset) * FLAGS.block_size
