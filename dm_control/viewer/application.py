@@ -44,6 +44,7 @@ _FPS_LABEL = 'FPS'
 _CAMERA_LABEL = 'Camera'
 _PAUSED_LABEL = 'Paused'
 _ERROR_LABEL = 'Error'
+_POLICY_LABEL = 'Policy'
 
 
 class Help(views.ColumnTextModel):
@@ -96,6 +97,7 @@ class Status(views.ColumnTextModel):
     self._time_multiplier = time_multiplier
     self._camera = None
     self._pause = pause
+    self._policy = ''
     self._frame_timer = frame_timer
     self._fps_counter = util.Integrator()
     self._cpu_counter = util.Integrator()
@@ -108,7 +110,12 @@ class Status(views.ColumnTextModel):
         (_CAMERA_LABEL, _MISSING_STATUS_ENTRY),
         (_PAUSED_LABEL, _MISSING_STATUS_ENTRY),
         (_ERROR_LABEL, _MISSING_STATUS_ENTRY),
+        (_POLICY_LABEL, _MISSING_STATUS_ENTRY),
     ])
+
+  def set_policy_text(self, text):
+    """ Updates the policy text box. """
+    self._policy = text
 
   def set_camera(self, camera):
     """Updates the active camera instance.
@@ -161,6 +168,8 @@ class Status(views.ColumnTextModel):
       self._value[_CAMERA_LABEL] = _MISSING_STATUS_ENTRY
 
     self._value[_PAUSED_LABEL] = str(self._pause.value)
+
+    self._value[_POLICY_LABEL] = str(self._policy)
 
     return list(self._value.items())  # For Python 2/3 compatibility.
 

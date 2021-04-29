@@ -4,6 +4,7 @@ import numpy as np
 from solver import build_env
 from model import FFNet, FFConfig, GPT, GPTConfig
 from dm_control import viewer
+from dm_control.viewer import application
 from dataset import OBS_KEYS
 from collections import deque
 from absl import flags, logging, app
@@ -57,14 +58,17 @@ def visualize(env, model, reference_actions, context_steps):
             obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1)).to(device)
             act, _ = model(obs_tt)
             act = act.squeeze()[-1].cpu().numpy()
+            viewer_app._status.set_policy_text('Network')
         else:
             act = reference_actions[episode_steps]
+            viewer_app._status.set_policy_text('Expert')
 
         episode_steps += 1
         return act
 
-    viewer.launch(env, policy)
-
+    global viewer_app
+    viewer_app = application.Application(title='Explorer', width=1024, height=768)
+    viewer_app.launch(environment_loader=env, policy=policy)
 
 def validate_reference_actions(env, reference_actions):
     """ Ensure the reference actions take us through the episode without failure. """
