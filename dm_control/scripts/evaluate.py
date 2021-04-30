@@ -57,7 +57,7 @@ def visualize(env, model, reference_actions, context_steps):
         if episode_steps >= max(model.block_size, context_steps):
             obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1)).to(device)
             act, _ = model(obs_tt)
-            act = act.squeeze()[-1].cpu().numpy()
+            act = act.squeeze(0)[-1].cpu().numpy()
             viewer_app._status.set_policy_text('Network')
         else:
             act = reference_actions[episode_steps]
@@ -109,7 +109,7 @@ def run_episode(env, model, reference_actions, context_steps=0):
         obs_queue.popleft()
         obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1)).to(device)
         act, _ = model(obs_tt)
-        act = act.squeeze()[-1].cpu().numpy() # (1,4,56) ==> (56,)
+        act = act.squeeze(0)[-1].cpu().numpy() # (1,block_size,56) ==> (56,)
         time_step = env.step(act)
         J += time_step.reward
         episode_steps += 1
@@ -134,7 +134,7 @@ def run_episode_with_reference_actions(env, model, reference_actions):
         if len(obs_queue) >= model.block_size:
             obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1)).to(device)
             act, _ = model(obs_tt)
-            act = act.cpu().numpy()
+            act = act.squeeze(0)[-1].cpu().numpy()
             mse_loss = np.mean((ref_act - act)**2)
             norms.append(mse_loss)
             obs_queue.popleft()
@@ -156,7 +156,7 @@ def load_model(config_path, model_path):
             model.load_state_dict(torch.load(model_path, map_location=device))        
             logging.info("Successfully loaded GPT")
             return model
-        except RuntimeError as e:
+        except Exception as e:
             return None
 
     def load_ffnet():
@@ -166,7 +166,7 @@ def load_model(config_path, model_path):
             model.load_state_dict(torch.load(model_path, map_location=device))
             logging.info("Successfully loaded FFNet")
             return model
-        except RuntimeError as e:
+        except Exception as e:
             return None
 
     model = load_gpt() or load_ffnet()
