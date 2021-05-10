@@ -38,3 +38,4 @@ def launch(environment_loader, policy=None, title='Explorer', width=1024,
   """
   app = application.Application(title=title, width=width, height=height)
   app.launch(environment_loader=environment_loader, policy=policy)
+  return app
