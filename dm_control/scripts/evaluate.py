@@ -33,7 +33,7 @@ def build_observation(time_step, observables):
         if feature.ndim < 2:
             feature = feature[:, np.newaxis]
         feats.append(feature)
-    full_obs = np.concatenate(feats, axis=1)        
+    full_obs = np.concatenate(feats, axis=1)
     return full_obs
 
 @torch.no_grad()
@@ -148,12 +148,13 @@ def get_clip_name(env):
 
 def load_model(config_path, model_path):
     """ Not knowing exactly what model we may have saved, try to load both types. """
-    
+
     def load_gpt():
         try:
             mconf = GPTConfig.from_json(config_path)
             model = GPT(mconf)
-            model.load_state_dict(torch.load(model_path, map_location=device))        
+            model.load_state_dict(torch.load(model_path, map_location=device))
+            model.to(device)
             logging.info("Successfully loaded GPT")
             return model
         except Exception as e:
@@ -164,6 +165,7 @@ def load_model(config_path, model_path):
             mconf = FFConfig.from_json(config_path)
             model = FFNet(mconf)
             model.load_state_dict(torch.load(model_path, map_location=device))
+            model.to(device)
             logging.info("Successfully loaded FFNet")
             return model
         except Exception as e:
@@ -178,7 +180,7 @@ def evaluate(env, model, reference_actions, context_steps):
     steps2term = []
     J, episode_steps = run_episode(
         env,
-        model, 
+        model,
         reference_actions,
         context_steps=context_steps,
     )
@@ -223,7 +225,7 @@ def main(argv):
     config_path = os.path.join(FLAGS.exp_dir, FLAGS.config_fname)
     model_path = os.path.join(FLAGS.exp_dir, FLAGS.model_fname)
     model = load_model(config_path, model_path)
-    comprehensive_eval('data/eval', model, 
+    comprehensive_eval('data/eval', model,
         visualize_policy=FLAGS.visualize,
         context_steps=FLAGS.context_steps,
     )
