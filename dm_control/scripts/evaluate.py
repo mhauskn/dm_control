@@ -83,7 +83,7 @@ def visualize(env, model, reference_actions, context_steps):
             if FLAGS.delta_action:
                 old_pos, old_quat = env.task._walker.get_pose(env.physics)
                 old_pos, old_quat = old_pos.copy(), old_quat.copy()
-                old_joint = env.task._walker.observables.joints_pos(env.physics).copy()
+                old_joint = env.physics.bind(walker.mocap_joints).qpos.copy()
                 pos = pos + old_pos
                 quat = quat + old_quat
                 joint = joint + old_joint
