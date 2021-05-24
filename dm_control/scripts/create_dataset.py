@@ -2,14 +2,16 @@ import os
 import math
 import numpy as np
 import h5py
+import os.path as osp
 from os.path import join as pjoin
 from absl import app
 from absl import flags
 from absl import logging
 from solver import build_env, evaluate
+from physics_free_solver import build_tasks, physics_free_step
 from tqdm import tqdm
 
-# This script processes saved actions sequences into a (state, action) 
+# This script processes saved actions sequences into a (state, action)
 # dataset for downstream consumption.
 
 logging.set_verbosity(logging.INFO)
@@ -17,6 +19,8 @@ logging.set_verbosity(logging.INFO)
 FLAGS = flags.FLAGS
 flags.DEFINE_list("input_dirs", ".", "List of directories to gather actions from.")
 flags.DEFINE_string("output_path", "trajectory_dataset.hdf5", "Output file for the dataset.")
+flags.DEFINE_boolean("physics_free", False, "Whether to supress the physics of the domain")
+flags.DEFINE_boolean("delta_action", False, "Whether the target action is change in observables")
 
 TERMINATION_ERROR_THRESHOLD=0.3
 
@@ -80,9 +84,26 @@ def extract_data(job_dir):
         logging.debug(f'Detected early termination: {stdout_path}')
         return None, None
 
+def physics_free_extract_data(job_dir):
+    try:
+        actions = np.load(pjoin(job_dir, 'opt_acts_0.npy'))
+    except:
+        raise
+
+    clip_name = osp.basename(osp.normpath(job_dir))
+    tasks = build_tasks([clip_name])
+    traj = tasks._all_clips[0]
+    observations = {k: v.astype(np.float32) for k, v in traj.as_dict().items()}
+    if FLAGS.delta_action:
+        actions -= np.concatenate([observations['walker/position'],
+                                   observations['walker/quaternion'],
+                                   observations['walker/joints']],
+                                  axis=1)
+
+    return observations, actions
 
 def run_episode(env, actions):
-    """ Runs the episode, recording the observations and actions. 
+    """ Runs the episode, recording the observations and actions.
         Returns: Success (boolean), observations, actions.
     """
     time_step = env.reset()
@@ -96,7 +117,11 @@ def run_episode(env, actions):
                 if features.ndim < 2:
                     features = features[:, np.newaxis]
                 observables[k].append(features)
-        time_step = env.step(act)
+        if FLAGS.physics_free:
+            pos, quat, joint = act[:, :3], act[:, 3:(3+4)], act[:, (3+4):]
+            time_step = physics_free_step(env, pos, quat, joint)
+        else:
+            time_step = env.step(act)
         J += time_step.reward
         if env._task._termination_error >= TERMINATION_ERROR_THRESHOLD:
             return False, J, None, None
@@ -122,17 +147,62 @@ def check_for_finished_jobs(input_dirs):
                 failed_jobs.append(full_path)
     return finished_jobs, failed_jobs
 
+
+def create_physics_free_dataset():
+    all_observations, all_actions, all_dones = [], [], []
+    finished_jobs, failed_jobs = check_for_finished_jobs(FLAGS.input_dirs)
+    pbar = tqdm(finished_jobs)
+    for job_dir in pbar:
+        pbar.set_description(f"{job_dir}")
+        observations, actions = physics_free_extract_data(job_dir)
+        dones = np.zeros((len(actions)), dtype=np.bool)
+        dones[-1] = True
+        all_observations.append(observations)
+        all_actions.append(actions)
+        all_dones.append(dones)
+
+    for job_dir in failed_jobs:
+        logging.info(f"[Failed Job] {job_dir}")
+
+    # Concatenate everything
+    all_actions_np = np.concatenate(all_actions)
+    all_dones_np = np.concatenate(all_dones)
+    tmp = {k: [] for k in all_observations[0].keys()}
+    for obs_dict in all_observations:
+        for k, v in obs_dict.items():
+            tmp[k].append(v)
+    all_observations_np = {k: np.concatenate(v) for k, v in tmp.items()}
+
+    # Write the dataset to a hdf5 file
+    f = h5py.File(FLAGS.output_path, "w")
+    act_dset = f.create_dataset('actions', all_actions_np.shape, all_actions_np.dtype)
+    act_dset[...] = all_actions_np
+    done_dset = f.create_dataset('dones', all_dones_np.shape, all_dones_np.dtype)
+    done_dset[...] = all_dones_np
+    grp = f.create_group('observables')
+    for k, v in all_observations_np.items():
+        dset = grp.create_dataset(k, v.shape, v.dtype)
+        dset[...] = v
+    logging.info(f"[Finished!] Jobs: "
+                 f"{len(finished_jobs)}/{len(finished_jobs)+len(failed_jobs)} successful")
+    logging.info(f"Action Shape: {all_actions_np.shape}")
+    for k, v in all_observations_np.items():
+        logging.info(f"Observation {k} Shape: {v.shape}")
+
 def create_dataset(argv):
     """ To create a dataset:
-    
-    1) Look through individual jobs in the experiment folder to find 
+
+    1) Look through individual jobs in the experiment folder to find
     optimized_actions.npy files.
-    2) Build the corresponding environment based on the intended clip 
+    2) Build the corresponding environment based on the intended clip
     and starting position.
     3) Record states and actions into a ? datastructure.
     4) Save the dataset.
 
     """
+    if FLAGS.physics_free:
+        create_physics_free_dataset()
+        return
     all_observations, all_actions, all_dones = [], [], []
     early_terminations = []
     finished_jobs, failed_jobs = check_for_finished_jobs(FLAGS.input_dirs)

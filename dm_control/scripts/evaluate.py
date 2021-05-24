@@ -6,6 +6,7 @@ from model import FFNet, FFConfig, GPT, GPTConfig
 from dm_control import viewer
 from dm_control.viewer import application
 from dataset import OBS_KEYS
+from physics_free_solver import physics_free_step
 from collections import deque
 from absl import flags, logging, app
 import glob
@@ -17,6 +18,8 @@ flags.DEFINE_string("model_fname", 'saved_model.pt', "Filename of model to load 
 flags.DEFINE_string("config_fname", 'saved_model_config.json', "Filename of config to load (in exp_dir)")
 flags.DEFINE_boolean("visualize", False, "Visualize the policy")
 flags.DEFINE_integer("context_steps", 32, "Number of steps used to build context.")
+flags.DEFINE_boolean("physics_free", False, "Whether to run the agent without physics")
+flags.DEFINE_boolean("delta_action", False, "Whether the action is change in state")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -36,6 +39,13 @@ def build_observation(time_step, observables):
     full_obs = np.concatenate(feats, axis=1)
     return full_obs
 
+def include_pose_and_joints(env, time_step):
+    obs = time_step.observation
+    pos, quat = env.task._walker.get_pose(env.physics)
+    obs['walker/position'] = pos.copy()[np.newaxis]
+    obs['walker/quaternion'] = quat.copy()[np.newaxis]
+    obs['walker/joints'] = env.task._walker.observables.joints_pos(env.physics).copy()[np.newaxis]
+
 @torch.no_grad()
 def visualize(env, model, reference_actions, context_steps):
     """ Visualizes the model running on a trajectory. """
@@ -49,6 +59,7 @@ def visualize(env, model, reference_actions, context_steps):
             episode_steps = 0
             obs_queue = deque()
 
+        include_pose_and_joints(env, time_step)
         obs = build_observation(time_step, model.observables)
         obs_queue.append(obs)
         while len(obs_queue) > model.block_size:
@@ -59,11 +70,19 @@ def visualize(env, model, reference_actions, context_steps):
             act, _ = model(obs_tt)
             act = act.squeeze(0)[-1].cpu().numpy()
             viewer_app._status.set_policy_text('Network')
+            is_ref = False
         else:
             act = reference_actions[episode_steps]
             viewer_app._status.set_policy_text('Expert')
+            is_ref = True
 
         episode_steps += 1
+        if FLAGS.physics_free and not is_ref:
+            pos, quat, joint = act[:3], act[3:(3+4)], act[(3+4):]
+            walker = env.task._walker
+            walker.set_pose(env.physics, position=pos, quaternion=quat)
+            env.physics.bind(walker.mocap_joints).qpos = joint
+            return joint
         return act
 
     global viewer_app
@@ -76,6 +95,12 @@ def validate_reference_actions(env, reference_actions):
     time_step = env.reset()
     episode_steps = 0
     norms = []
+    walker = env.task._walker
+
+    if FLAGS.physics_free:
+        logging.debug("Don't need to validate physics-free reference actions")
+        return
+
     for idx, act in enumerate(reference_actions):
         time_step = env.step(act)
         if env.task._should_truncate:
@@ -93,24 +118,37 @@ def run_episode(env, model, reference_actions, context_steps=0):
     J = 0
     episode_steps = 0
     obs_queue = deque()
+    walker = env.task._walker
 
     # Build the context using reference actions
     for idx in range(max(model.block_size, context_steps)):
+        include_pose_and_joints(env, time_step)
         obs = build_observation(time_step, model.observables)
         obs_queue.append(obs)
+        #if FLAGS.physics_free:
+        #    act = reference_actions[idx]
+        #    pos, quat, joint = act[:3], act[3:(3+4)], act[(3+4):]
+        #    time_step = physics_free_step(env, pos, quat, joint)
+        #else:
+        #    time_step = env.step(reference_actions[idx])
         time_step = env.step(reference_actions[idx])
     while len(obs_queue) > model.block_size:
         obs_queue.popleft()
     assert len(obs_queue) == model.block_size
 
     while not time_step.last():
+        include_pose_and_joints(env, time_step)
         obs = build_observation(time_step, model.observables)
         obs_queue.append(obs)
         obs_queue.popleft()
         obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1)).to(device)
         act, _ = model(obs_tt)
         act = act.squeeze(0)[-1].cpu().numpy() # (1,block_size,56) ==> (56,)
-        time_step = env.step(act)
+        if FLAGS.physics_free:
+            pos, quat, joint = act[:3], act[3:(3+4)], act[(3+4):]
+            time_step = physics_free_step(env, pos, quat, joint)
+        else:
+            time_step = env.step(act)
         J += time_step.reward
         episode_steps += 1
     return J, episode_steps
@@ -126,18 +164,27 @@ def run_episode_with_reference_actions(env, model, reference_actions):
     episode_steps = 0
     norms = []
     obs_queue = deque()
+    walker = env.task._walker
 
     while not time_step.last():
         ref_act = reference_actions[episode_steps]
+        include_pose_and_joints(env, time_step)
         obs = build_observation(time_step, model.observables)
         obs_queue.append(obs)
         if len(obs_queue) >= model.block_size:
             obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1)).to(device)
             act, _ = model(obs_tt)
             act = act.squeeze(0)[-1].cpu().numpy()
+            if FLAGS.physics_free:
+                act = act[(3+4):]
             mse_loss = np.mean((ref_act - act)**2)
             norms.append(mse_loss)
             obs_queue.popleft()
+        #if FLAGS.physics_free:
+        #    pos, quat, joint = act[:, :3], act[:, 3:(3+4)], act[:, (3+4):]
+        #    time_step = physics_free_step(env, pos, quat, joint)
+        #else:
+        #    time_step = env.step(ref_act)
         time_step = env.step(ref_act)
         J += time_step.reward
         episode_steps += 1

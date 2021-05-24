@@ -32,6 +32,11 @@ OBS_KEYS = [
     'walker/gyro_control',
     'walker/joints_vel_control',
     'walker/time_in_clip',
+
+    # For physics-free
+    'walker/position',
+    'walker/quaternion',
+    'walker/joints',
 ]
 
 class TrajectoryDataset(Dataset):
@@ -85,24 +90,24 @@ class TrajectoryDataset(Dataset):
 
 
     def _create_logical_offset(self):
-        """ The idea behind the logical offset is to avoid sampling data that crosses episode 
+        """ The idea behind the logical offset is to avoid sampling data that crosses episode
         boundaries. The strategy is to avoid sampling a datapoint in the tail of an episode
         (denoted by |ooooo|) as it would cross an episode boundary when adding context.
 
         Actual Dataset: here shown with 4 episodes, heads + tails.
         |-----------|ooooo| |-----|ooooo| |---------------|ooooo| |oooo|
-        
-        Logical Dataset: contains only the heads of episodes - so that we never sample from the 
+
+        Logical Dataset: contains only the heads of episodes - so that we never sample from the
         tail of an episode (and cross an episode boundary).
         |-----------|       |-----|       |---------------|       ||
-        
+
         The logical offset tells us for an index into the logical dataset, the corresponding
         index in the actual dataset.
 
-        For example, if we wanted to retrieve the first timestep of Episode 2, we would need to 
+        For example, if we wanted to retrieve the first timestep of Episode 2, we would need to
         offset the logical index by the tail length of Episode 1 to arrive at an index into the
         actual dataset.
-        
+
         """
         self.logical_index, self.logical_offset = [-1], [0, 0]
         episode_ends = np.nonzero(self.dones)[0]
@@ -140,7 +145,7 @@ class TrajectoryDataset(Dataset):
         # return self.actions.shape[0] - self.block_size
 
     def __getitem__(self, idx):
-        """ Given the logical idx, we need to find the offset to arrive at the 
+        """ Given the logical idx, we need to find the offset to arrive at the
         actual index into the dataset.
 
         """

@@ -70,7 +70,7 @@ def set_task_state(env, step_offset: int, physics_data: 'wrapper.MjData'):
 
 
 def evaluate_and_get_physics_data(env, actions, custom_init=None):
-    """ Resets the environment and executes the provided actions. 
+    """ Resets the environment and executes the provided actions.
         Returns the total reward and the sequence of physics_data.
     """
     J = 0
@@ -136,7 +136,7 @@ def episode_failed(env, actions, custom_init=None):
         if time_step.last():
             break
     return False
-    
+
 
 # def optimize_clip_segment(env, actions, custom_init, optimizer_iters, additional_actions=None):
 #     start_step = custom_init.start_step
@@ -148,7 +148,7 @@ def optimize_clip_segment(env, actions, custom_init, optimizer_iters, additional
 
     Args:
         actions: Numpy ndarray of shape (n_steps x action_dim) of actions to optimize.
-        custom_init: Specifier 
+        custom_init: Specifier
         optimizer_iters: Number of iterations of Scipy optimzier to run.
         additional_actions: (Optional) extra actions appended to the original
             actions for purposes of evaluation, but not optimized.
@@ -162,15 +162,15 @@ def optimize_clip_segment(env, actions, custom_init, optimizer_iters, additional
     J_init = evaluate(env, full_actions, custom_init)
     x0 = actions.flatten()
     if additional_actions is not None:
-        fun = lambda x: evaluate(env, 
-                                 np.concatenate((x.reshape(actions.shape), additional_actions)), 
+        fun = lambda x: evaluate(env,
+                                 np.concatenate((x.reshape(actions.shape), additional_actions)),
                                  custom_init)
     else:
         fun = lambda x: evaluate(env, x.reshape(actions.shape), custom_init)
 
     res = optimize.minimize(
         fun,
-        x0, 
+        x0,
         method='powell',
         bounds=optimize.Bounds(lb=-np.ones_like(x0), ub=np.ones_like(x0)),
         options={
@@ -208,8 +208,9 @@ def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22', start_step=0,
         disable_observables=disable_observables,
     )
     env = composer.Environment(
-        task=task, 
-        random_state=np.random.RandomState(seed=FLAGS.seed)
+        task=task,
+        #random_state=np.random.RandomState(seed=FLAGS.seed)
+        random_state=np.random.RandomState(seed=0)
     )
     return env
 
@@ -236,7 +237,7 @@ def singlethreaded_optimize(env, actions, optimizer_iters, seg_size, additional_
     time_step = env.reset()
     physics_state = env.physics.data.deepcopy()
     n_segs = math.ceil(len(actions) / seg_size)
-    
+
     for seg_idx in range(n_segs):
         logging.info('Memory Usage: {:.1f} Mb'.format(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1000.))
         ts = seg_idx * seg_size
