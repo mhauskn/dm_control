@@ -18,9 +18,17 @@ FLAGS = flags.FLAGS
 flags.DEFINE_spaceseplist("clip_names", "CMU_016_22",
                           "Name of reference clips. See cmu_subsets.py")
 
-def physics_free_step(env, pos, quat, joint):
+def physics_free_step(env, pos, quat, joint, change=False):
     tmp_time_step = env.step(joint)
     walker = env.task._walker
+    if change:
+        old_pos, old_quat = env.task._walker.get_pose(env.physics)
+        old_pos = old_pos.copy()
+        old_quat = old_quat.copy()
+        old_joint = env.task._walker.observables.joints_pos(env.physics).copy()
+        pos = pos + old_pos
+        quat = quat + old_quat
+        joint = joint + old_joint
     walker.set_pose(env.physics, position=pos, quaternion=quat)
     env.physics.bind(walker.mocap_joints).qpos = joint
 

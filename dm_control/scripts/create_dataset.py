@@ -95,10 +95,11 @@ def physics_free_extract_data(job_dir):
     traj = tasks._all_clips[0]
     observations = {k: v.astype(np.float32) for k, v in traj.as_dict().items()}
     if FLAGS.delta_action:
-        actions -= np.concatenate([observations['walker/position'],
-                                   observations['walker/quaternion'],
-                                   observations['walker/joints']],
-                                  axis=1)
+        prev = np.concatenate([observations['walker/position'],
+                               observations['walker/quaternion'],
+                               observations['walker/joints']],
+                              axis=1)
+        actions -= prev[:-1]
 
     return observations, actions
 

@@ -80,6 +80,13 @@ def visualize(env, model, reference_actions, context_steps):
         if FLAGS.physics_free and not is_ref:
             pos, quat, joint = act[:3], act[3:(3+4)], act[(3+4):]
             walker = env.task._walker
+            if FLAGS.delta_action:
+                old_pos, old_quat = env.task._walker.get_pose(env.physics)
+                old_pos, old_quat = old_pos.copy(), old_quat.copy()
+                old_joint = env.task._walker.observables.joints_pos(env.physics).copy()
+                pos = pos + old_pos
+                quat = quat + old_quat
+                joint = joint + old_joint
             walker.set_pose(env.physics, position=pos, quaternion=quat)
             env.physics.bind(walker.mocap_joints).qpos = joint
             return joint
@@ -146,7 +153,7 @@ def run_episode(env, model, reference_actions, context_steps=0):
         act = act.squeeze(0)[-1].cpu().numpy() # (1,block_size,56) ==> (56,)
         if FLAGS.physics_free:
             pos, quat, joint = act[:3], act[3:(3+4)], act[(3+4):]
-            time_step = physics_free_step(env, pos, quat, joint)
+            time_step = physics_free_step(env, pos, quat, joint, change=FLAGS.delta_action)
         else:
             time_step = env.step(act)
         J += time_step.reward
