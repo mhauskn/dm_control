@@ -454,9 +454,11 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
       self._force_vector = random_three_vector(random_state)
 
     # Get a new clip here to instantiate the right prop for this episode.
-    self._get_clip_to_track(random_state=random_state,
-                            clip_index=0,
-                            start_step=self._start_step)
+    if self._start_step is not None:
+      self._get_clip_to_track(clip_index=0, start_step=self._start_step)
+    else:
+      self._get_clip_to_track(random_state=random_state)
+
     # Set up props.
     # We call the prop factory here to ensure that props can change per episode.
     for prop in self._props:
