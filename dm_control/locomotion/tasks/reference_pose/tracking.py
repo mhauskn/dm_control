@@ -1046,10 +1046,17 @@ class PlaybackTask(ReferencePosesTask):
                      proto_modifier=proto_modifier)
     self._current_clip_index = -1
 
-  def _get_clip_to_track(self, random_state: np.random.RandomState):
-    self._current_clip_index = (self._current_clip_index + 1) % self._num_clips
+  def _get_clip_to_track(self,
+                         random_state: Union[np.random.RandomState, None] = None,
+                         clip_index: Union[int, None] = None,
+                         start_step: Union[int, None] = None):
 
-    start_step = self._dataset.start_steps[self._current_clip_index]
+    self._current_clip_index = (clip_index
+                                if clip_index is not None
+                                else (self._current_clip_index+1) % self._num_clips)
+
+    if start_step is None:
+      start_step = self._dataset.start_steps[self._current_clip_index]
     clip_id = self._dataset.ids[self._current_clip_index]
     logging.info('Showing clip %d of %d, clip id %s',
                  self._current_clip_index+1, self._num_clips, clip_id)
