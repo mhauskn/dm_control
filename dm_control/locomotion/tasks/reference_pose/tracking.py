@@ -206,6 +206,10 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     self._load_reference_data(
         ref_path=ref_path, proto_modifier=proto_modifier, dataset=dataset)
 
+    self._get_possible_starts()
+
+    logging.info("%d starting points found.", len(self._possible_starts))
+
     # load a dummy trajectory
     self._current_clip_index = 0
     self._current_clip = self._loader.get_trajectory(
@@ -482,7 +486,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
                          clip_index: Union[int, None] = None,
                          start_step: Union[int, None] = None):
 
-    if not random_state and (not clip_index or not start_step):
+    if random_state is None and (clip_index is None or start_step is None):
       raise ValueError("Too many None arguments")
 
     if random_state: # Randomly select a starting point.
@@ -520,7 +524,9 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
 
   def set_tracking_state_and_update(self, physics, clip_index, step_offset):
     """ Set the clip to track at a particular step and updates features. """
-    self._get_clip_to_track(clip_index, self._start_step + step_offset)
+    self._get_clip_to_track(random_state=None,
+                            clip_index=clip_index,
+                            start_step=self._start_step + step_offset)
 
     self._walker_features = utils.get_features(physics, self._walker)
     self._walker_features_prev = utils.get_features(physics, self._walker)
