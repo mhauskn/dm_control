@@ -196,6 +196,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     self._force_magnitude = force_magnitude
     # logging.info('Reward type %s', reward_type)
     self._actuator_force_coeff = actuator_force_coeff
+    self._disable_observables = disable_observables
 
     if isinstance(dataset, Text):
       try:
@@ -786,6 +787,9 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
 
   def get_all_reference_observations(self, physics: 'mjcf.Physics'):
     reference_observations = dict()
+    if self._disable_observables:
+      return reference_observations
+
     reference_observations[
         'walker/reference_rel_bodies_pos_local'] = self.get_reference_rel_bodies_pos_local(
             physics)
