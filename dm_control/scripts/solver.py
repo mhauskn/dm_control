@@ -195,7 +195,7 @@ def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22', start_step=0,
     task = tracking.MultiClipMocapTracking(
         walker=walker,
         arena=arena,
-        ref_path=cmu_mocap_data.get_path_for_cmu_2020(),
+        ref_path=cmu_mocap_data.get_path_for_cmu(version='2020'),
         dataset=types.ClipCollection(ids=[clip_name]),
         ref_steps=(1, 2, 3, 4, 5),
         start_step=start_step,
@@ -209,8 +209,7 @@ def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22', start_step=0,
     )
     env = composer.Environment(
         task=task,
-        #random_state=np.random.RandomState(seed=FLAGS.seed)
-        random_state=np.random.RandomState(seed=0)
+        random_state=np.random.RandomState(seed=FLAGS.seed)
     )
     return env
 
