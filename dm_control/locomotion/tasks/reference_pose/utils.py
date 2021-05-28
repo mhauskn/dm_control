@@ -35,10 +35,24 @@ def add_walker(walker_fn, arena, name='walker', ghost=False, visible=True,
       # alpha=0.999 ensures grey ghost reference.
       # for alpha=1.0 there is no visible difference between real walker and
       # ghost reference.
+      alpha = 0.999
+      if geom.rgba is not None and geom.rgba[3] < alpha:
+        alpha = geom.rgba[3]
+
       geom.set_attributes(
           contype=0,
           conaffinity=0,
-          rgba=(0.5, 0.5, 0.5, .999 if visible else 0.0))
+          rgba=(0.5, 0.5, 0.5, alpha if visible else 0.0))
+
+    # We don't want ghost actuators to be controllable, so remove them.
+    model = walker.mjcf_model
+
+    elems = model.find_all('actuator')
+    sensors = [x for x in model.find_all('sensor') if 'actuator' in x.tag]
+    elems += sensors
+
+    for elem in elems:
+      elem.remove()
 
     skin = walker.mjcf_model.find('skin', 'skin')
     if skin:
@@ -83,7 +97,7 @@ def set_walker(physics, walker, qpos, qvel, offset=0, null_xyz_and_yaw=False,
   """Set the freejoint and walker's joints angles and velocities."""
   qpos = np.array(qpos)
   if null_xyz_and_yaw:
-    qpos[:3] = 0.
+    qpos[:2] = 0.
     euler = tr.quat_to_euler(qpos[3:7], ordering='ZYX')
     euler[0] = 0.
     quat = tr.euler_to_quat(euler, ordering='ZYX')
@@ -102,7 +116,16 @@ def set_walker(physics, walker, qpos, qvel, offset=0, null_xyz_and_yaw=False,
                       quaternion=rotation_shift, rotate_velocity=True)
 
 
-def get_features(physics, walker):
+def set_props_from_features(physics, props, features, z_offset=0):
+  positions = features['prop_positions']
+  quaternions = features['prop_quaternions']
+  if np.isscalar(z_offset):
+    z_offset = np.array([0., 0., z_offset])
+  for prop, pos, quat in zip(props, positions, quaternions):
+    prop.set_pose(physics, pos + z_offset, quat)
+
+
+def get_features(physics, walker, props=None):
   """Get walker features for reward functions."""
   walker_bodies = walker.mocap_tracking_bodies
 
@@ -113,6 +136,7 @@ def get_features(physics, walker):
   joints = np.array(physics.bind(walker.mocap_joints).qpos)
   walker_features['joints'] = joints
   freejoint_frame = mjcf.get_attachment_frame(walker.mjcf_model)
+
   com = np.array(physics.bind(freejoint_frame).subtree_com)
   walker_features['center_of_mass'] = com
   end_effectors = np.array(
@@ -133,4 +157,14 @@ def get_features(physics, walker):
   walker_features['angular_velocity'] = np.array(root_angvel)
   joints_vel = np.array(physics.bind(walker.mocap_joints).qvel)
   walker_features['joints_velocity'] = joints_vel
+
+  if props:
+    positions = []
+    quaternions = []
+    for prop in props:
+      pos, quat = prop.get_pose(physics)
+      positions.append(pos)
+      quaternions.append(quat)
+    walker_features['prop_positions'] = np.array(positions)
+    walker_features['prop_quaternions'] = np.array(quaternions)
   return walker_features
