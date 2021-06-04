@@ -32,7 +32,7 @@ class GPTConfig:
     def to_json(self, output_fname):
         with open(output_fname, 'w') as f:
             f.write(json.dumps(self.__dict__))
-    
+
     @staticmethod
     def from_json(fname):
         with open(fname, 'r') as f:
@@ -130,6 +130,7 @@ class GPT(nn.Module):
         self.observables = config.observables
         self.apply(self._init_weights)
         self.criterion = nn.MSELoss()
+        #self.criterion = lambda pred, tgt: torch.mean(100*(pred-tgt)**2)
         # self.criterion = nn.L1Loss()
 
         logging.info("%s number of parameters: %e", self.__class__.__name__, sum(p.numel() for p in self.parameters()))
@@ -228,7 +229,7 @@ class FFConfig:
     def to_json(self, output_fname):
         with open(output_fname, 'w') as f:
             f.write(json.dumps(self.__dict__))
-    
+
     @staticmethod
     def from_json(fname):
         with open(fname, 'r') as f:
@@ -257,7 +258,7 @@ class FFNet(nn.Module):
 
     def configure_optimizers(self, train_config):
         optimizer = torch.optim.AdamW(self.mlp.parameters(), lr=train_config.learning_rate, betas=train_config.betas)
-        return optimizer        
+        return optimizer
 
 
     def forward(self, x, targets=None):
