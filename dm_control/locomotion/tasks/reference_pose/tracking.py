@@ -128,6 +128,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
       max_steps: int = 256,
       reward_type: Text = 'termination_reward',
       physics_timestep: float = DEFAULT_PHYSICS_TIMESTEP,
+      physics_free: bool = False,
       always_init_at_clip_start: bool = False,
       proto_modifier: Optional[Any] = None,
       prop_factory: Optional[Any] = None,
@@ -138,7 +139,6 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
       actuator_force_coeff: float = 0.015,
       disable_observables: bool = False,
       enabled_reference_observables: Optional[Sequence[Text]] = None,
-      walker_as_ghost: bool = False
   ):
     """Abstract task that uses reference data.
 
@@ -163,6 +163,8 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
       reward_type: type of reward to use, must be a string that appears as a key
         in the REWARD_FN dict in rewards.py.
       physics_timestep: Physics timestep to use for simulation.
+      physics_free: If True, supress the dynamics. Also changes the action space to
+        desired pose and configuration.
       always_init_at_clip_start: only initialize epsidodes at the start of a
         reference trajectory.
       proto_modifier: Optional proto modifier to modify reference trajectories,
@@ -181,7 +183,6 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
         when observables are disabled.
       enabled_reference_observables: Optional iterable of enabled observables.
         If not specified, a reasonable default set will be enabled.
-      walker_as_ghost: Disables the contacts for the walker by making it a ghost.
     """
     self._ref_steps = np.sort(ref_steps)
     self._max_ref_step = self._ref_steps[-1]
@@ -189,6 +190,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     self._prop_termination_error_threshold = prop_termination_error_threshold
     self._reward_fn = rewards.get_reward(reward_type)
     self._reward_keys = rewards.get_reward_channels(reward_type)
+    self._physics_free = physics_free
     self._start_step = start_step
     self._min_steps = min_steps
     self._max_steps = max_steps
@@ -223,7 +225,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
 
     # Create the environment.
     self._arena = arena
-    self._walker = utils.add_walker(walker, self._arena, ghost=walker_as_ghost)
+    self._walker = utils.add_walker(walker, self._arena)
     self.set_timesteps(
         physics_timestep=physics_timestep,
         control_timestep=self._current_clip.dt)
@@ -601,6 +603,10 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
 
   def before_step(self, physics: 'mjcf.Physics', action,
                   random_state: np.random.RandomState):
+    if self._physics_free:
+      self._action = action.copy()
+      return
+
     self._walker.apply_action(physics, action, random_state)
 
     if self._time_step == (self._last_step // 3) and self._force_magnitude > 0:
@@ -617,6 +623,11 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
                  random_state: np.random.RandomState):
     """Update the data after step."""
     del random_state  # unused by after_step.
+
+    if self._physics_free:
+      qvel = np.zeros(self._action.shape[0]-1)
+      utils.set_walker(physics, self._walker, qpos=self._action, qvel=qvel)
+      mjlib.mj_kinematics(physics.model.ptr, physics.data.ptr)
 
     self._walker_features_prev = self._walker_features.copy()
 
@@ -915,6 +926,7 @@ class MultiClipMocapTracking(ReferencePosesTask):
       max_steps: int = 256,
       reward_type: Text = 'termination_reward',
       physics_timestep: float = DEFAULT_PHYSICS_TIMESTEP,
+      physics_free: bool = False,
       always_init_at_clip_start: bool = False,
       proto_modifier: Optional[Any] = None,
       prop_factory: Optional[Any] = None,
@@ -925,7 +937,6 @@ class MultiClipMocapTracking(ReferencePosesTask):
       actuator_force_coeff: float = 0.015,
       disable_observables: bool = False,
       enabled_reference_observables: Optional[Sequence[Text]] = None,
-      walker_as_ghost: bool = False
   ):
     """Mocap tracking task.
 
@@ -950,6 +961,8 @@ class MultiClipMocapTracking(ReferencePosesTask):
       reward_type: type of reward to use, must be a string that appears as a key
         in the REWARD_FN dict in rewards.py.
       physics_timestep: Physics timestep to use for simulation.
+      physics_free: If True, supress the dynamics. Also changes the action space to
+        desired pose and configuration.
       always_init_at_clip_start: only initialize epsidodes at the start of a
         reference trajectory.
       proto_modifier: Optional proto modifier to modify reference trajectories,
@@ -968,7 +981,6 @@ class MultiClipMocapTracking(ReferencePosesTask):
         when observables are disabled.
       enabled_reference_observables: Optional iterable of enabled observables.
         If not specified, a reasonable default set will be enabled.
-      walker_as_ghost: Disables the contacts for the walker by making it a ghost.
     """
     super().__init__(
         walker=walker,
@@ -983,6 +995,7 @@ class MultiClipMocapTracking(ReferencePosesTask):
         max_steps=max_steps,
         reward_type=reward_type,
         physics_timestep=physics_timestep,
+        physics_free=physics_free,
         always_init_at_clip_start=always_init_at_clip_start,
         proto_modifier=proto_modifier,
         prop_factory=prop_factory,
@@ -993,7 +1006,6 @@ class MultiClipMocapTracking(ReferencePosesTask):
         actuator_force_coeff=actuator_force_coeff,
         disable_observables=disable_observables,
         enabled_reference_observables=enabled_reference_observables)
-        walker_as_ghost=walker_as_ghost)
     self._walker.observables.add_observable(
         'time_in_clip',
         base_observable.Generic(self.get_normalized_time_in_clip))
@@ -1097,7 +1109,6 @@ class PlaybackTask(ReferencePosesTask):
     logging.info('Mocap %s at step %d with remaining length %d.', clip_id,
                  start_step, self._last_step - start_step)
 
-  # TODO: maybe use this to set walker?
   def _set_walker(self, physics: 'mjcf.Physics'):
     timestep_features = tree.map_structure(lambda x: x[self._time_step],
                                            self._clip_reference_features)
