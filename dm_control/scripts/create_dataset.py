@@ -8,7 +8,7 @@ from absl import app
 from absl import flags
 from absl import logging
 from solver import build_env, evaluate
-from physics_free_solver import build_tasks, physics_free_step
+from physics_free_solver import build_tasks
 from tqdm import tqdm
 
 # This script processes saved actions sequences into a (state, action)
@@ -118,11 +118,7 @@ def run_episode(env, actions):
                 if features.ndim < 2:
                     features = features[:, np.newaxis]
                 observables[k].append(features)
-        if FLAGS.physics_free:
-            pos, quat, joint = act[:, :3], act[:, 3:(3+4)], act[:, (3+4):]
-            time_step = physics_free_step(env, pos, quat, joint)
-        else:
-            time_step = env.step(act)
+        time_step = env.step(act)
         J += time_step.reward
         if env._task._termination_error >= TERMINATION_ERROR_THRESHOLD:
             return False, J, None, None
