@@ -137,4 +137,4 @@ class Trainer:
             # if self.config.ckpt_path is not None and good_model:
             #     best_loss = test_loss
             #     self.save_checkpoint()
-        self.save_checkpoint()                
+        self.save_checkpoint()

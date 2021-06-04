@@ -38,19 +38,19 @@ def train():
 
     if FLAGS.model == "gpt":
         mconf = GPTConfig(
-            obs_size=train_dataset.observation_size, 
-            action_size=train_dataset.action_size, 
+            obs_size=train_dataset.observation_size,
+            action_size=train_dataset.action_size,
             block_size=train_dataset.block_size,
             n_layer=FLAGS.gpt_layers,
-            n_head=FLAGS.gpt_heads, 
+            n_head=FLAGS.gpt_heads,
             n_embd=FLAGS.gpt_embd,
             observables=FLAGS.observables,
         )
         model = GPT(mconf)
     elif FLAGS.model == "ffnet":
         mconf = FFConfig(
-            obs_size=train_dataset.observation_size, 
-            action_size=train_dataset.action_size, 
+            obs_size=train_dataset.observation_size,
+            action_size=train_dataset.action_size,
             block_size=train_dataset.block_size,
             observables=FLAGS.observables,
         )
@@ -66,7 +66,7 @@ def train():
     logging.info(f"Using final_tokens: {final_tokens}")
     tconf = TrainerConfig(
         batch_size=FLAGS.batch_size,
-        max_epochs=FLAGS.max_epochs, 
+        max_epochs=FLAGS.max_epochs,
         ckpt_path=os.path.join(OUTPUT_DIR, FLAGS.checkpoint_path),
         learning_rate=FLAGS.learning_rate,
         grad_norm_clip=FLAGS.grad_norm_clip,
