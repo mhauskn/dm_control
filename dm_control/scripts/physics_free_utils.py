@@ -1,4 +1,12 @@
 from collections import OrderedDict
+import numpy as np
+
+def include_pose_and_joints(env, time_step):
+    obs = time_step.observation
+    pos, quat = env.task._walker.get_pose(env.physics)
+    obs['walker/position'] = pos.copy()[np.newaxis]
+    obs['walker/quaternion'] = quat.copy()[np.newaxis]
+    obs['walker/joints'] = env.task._walker.observables.joints_pos(env.physics).copy()[np.newaxis]
 
 def get_observation(walker, physics):
     observation = OrderedDict()
