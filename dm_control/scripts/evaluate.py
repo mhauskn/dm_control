@@ -5,6 +5,7 @@ from solver import build_env
 from model import FFNet, FFConfig, GPT, GPTConfig
 from dm_control import viewer
 from dm_control.viewer import application
+from dm_control.locomotion.tasks.reference_pose.utils import set_walker
 from dataset import OBS_KEYS
 from physics_free_solver import physics_free_step
 from collections import deque
@@ -22,6 +23,10 @@ flags.DEFINE_boolean("physics_free", False, "Whether to run the agent without ph
 flags.DEFINE_boolean("delta_action", False, "Whether the action is change in state")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+import h5py
+f = h5py.File('data/supervised_dataset.hdf5', 'r')
+ACTS = np.array(f['actions'])
 
 def observables_sorted(observables):
     observables = ['walker/' + o for o in observables if not o.startswith('walker/')]
@@ -65,7 +70,7 @@ def visualize(env, model, reference_actions, context_steps):
         while len(obs_queue) > model.block_size:
             obs_queue.popleft()
 
-        if episode_steps >= max(model.block_size, context_steps):
+        if True: #episode_steps >= max(model.block_size, context_steps):
             obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1)).to(device)
             act, _ = model(obs_tt)
             act = act.squeeze(0)[-1].cpu().numpy()
@@ -76,6 +81,7 @@ def visualize(env, model, reference_actions, context_steps):
             viewer_app._status.set_policy_text('Expert')
             is_ref = True
 
+        #act = ACTS[episode_steps]
         episode_steps += 1
         if FLAGS.physics_free and not is_ref:
             pos, quat, joint = act[:3], act[3:(3+4)], act[(3+4):]
@@ -87,8 +93,10 @@ def visualize(env, model, reference_actions, context_steps):
                 pos = pos + old_pos
                 quat = quat + old_quat
                 joint = joint + old_joint
-            walker.set_pose(env.physics, position=pos, quaternion=quat)
-            env.physics.bind(walker.mocap_joints).qpos = joint
+            #walker.set_pose(env.physics, position=pos, quaternion=quat)
+            #env.physics.bind(walker.mocap_joints).qpos = joint
+            act = np.concatenate([pos, quat, joint])
+            set_walker(env.physics, walker, qpos=act, qvel=np.zeros(act.shape[0]-1))
             return joint
         return act
 
@@ -98,7 +106,7 @@ def visualize(env, model, reference_actions, context_steps):
 
 def validate_reference_actions(env, reference_actions):
     """ Ensure the reference actions take us through the episode without failure. """
-    assert env.task._termination_error_threshold <= 0.3
+    #assert env.task._termination_error_threshold <= 0.3
     time_step = env.reset()
     episode_steps = 0
     norms = []
@@ -265,7 +273,8 @@ def comprehensive_eval(eval_dir, model, visualize_policy=False, context_steps=32
             start_step=start_step,
             force_magnitude=0,
             disable_observables=False,
-            termination_error_threshold=0.3,
+            #termination_error_threshold=0.3,
+            walker_as_ghost=FLAGS.physics_free
         )
         validate_reference_actions(env, ref_actions)
         steps2term, norm_diff = evaluate(env, model, ref_actions, context_steps)

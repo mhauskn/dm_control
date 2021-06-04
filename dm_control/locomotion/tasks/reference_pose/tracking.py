@@ -138,6 +138,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
       actuator_force_coeff: float = 0.015,
       disable_observables: bool = False,
       enabled_reference_observables: Optional[Sequence[Text]] = None,
+      walker_as_ghost: bool = False
   ):
     """Abstract task that uses reference data.
 
@@ -180,6 +181,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
         when observables are disabled.
       enabled_reference_observables: Optional iterable of enabled observables.
         If not specified, a reasonable default set will be enabled.
+      walker_as_ghost: Disables the contacts for the walker by making it a ghost.
     """
     self._ref_steps = np.sort(ref_steps)
     self._max_ref_step = self._ref_steps[-1]
@@ -221,7 +223,7 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
 
     # Create the environment.
     self._arena = arena
-    self._walker = utils.add_walker(walker, self._arena)
+    self._walker = utils.add_walker(walker, self._arena, ghost=walker_as_ghost)
     self.set_timesteps(
         physics_timestep=physics_timestep,
         control_timestep=self._current_clip.dt)
@@ -923,6 +925,7 @@ class MultiClipMocapTracking(ReferencePosesTask):
       actuator_force_coeff: float = 0.015,
       disable_observables: bool = False,
       enabled_reference_observables: Optional[Sequence[Text]] = None,
+      walker_as_ghost: bool = False
   ):
     """Mocap tracking task.
 
@@ -965,6 +968,7 @@ class MultiClipMocapTracking(ReferencePosesTask):
         when observables are disabled.
       enabled_reference_observables: Optional iterable of enabled observables.
         If not specified, a reasonable default set will be enabled.
+      walker_as_ghost: Disables the contacts for the walker by making it a ghost.
     """
     super().__init__(
         walker=walker,
@@ -989,6 +993,7 @@ class MultiClipMocapTracking(ReferencePosesTask):
         actuator_force_coeff=actuator_force_coeff,
         disable_observables=disable_observables,
         enabled_reference_observables=enabled_reference_observables)
+        walker_as_ghost=walker_as_ghost)
     self._walker.observables.add_observable(
         'time_in_clip',
         base_observable.Generic(self.get_normalized_time_in_clip))
@@ -1092,6 +1097,7 @@ class PlaybackTask(ReferencePosesTask):
     logging.info('Mocap %s at step %d with remaining length %d.', clip_id,
                  start_step, self._last_step - start_step)
 
+  # TODO: maybe use this to set walker?
   def _set_walker(self, physics: 'mjcf.Physics'):
     timestep_features = tree.map_structure(lambda x: x[self._time_step],
                                            self._clip_reference_features)

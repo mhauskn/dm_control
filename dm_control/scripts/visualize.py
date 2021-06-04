@@ -19,9 +19,9 @@ def analyze_trajectory(env, actions):
     for idx, act in enumerate(actions):
         time_step = env.step(act)
         row = [
-            idx, 
+            idx,
             time_step.reward,
-            env._task._termination_error, 
+            env._task._termination_error,
             1.7e-2 * np.linalg.norm(env._task._walker_features['angular_velocity']),
             3.1e-3 * np.linalg.norm(env._task._walker_features['joints_velocity']),
         ]
@@ -34,8 +34,8 @@ def analyze_trajectory(env, actions):
 
 def visualize_trajectory(argv):
     env = build_env(
-        reward_type=FLAGS.reward_type, 
-        ghost_offset=1, 
+        reward_type=FLAGS.reward_type,
+        ghost_offset=1,
         clip_name=FLAGS.clip_name,
         start_step=FLAGS.start_step,
     )

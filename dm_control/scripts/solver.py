@@ -189,7 +189,9 @@ def optimize_clip_segment(env, actions, custom_init, optimizer_iters, additional
 
 
 def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22', start_step=0,
-              force_magnitude=0, disable_observables=True, termination_error_threshold=1e10):
+              force_magnitude=0, disable_observables=True,
+              termination_error_threshold=1e10,
+              walker_as_ghost=False):
     walker = cmu_humanoid.CMUHumanoidPositionControlledV2020
     arena = floors.Floor()
     task = tracking.MultiClipMocapTracking(
@@ -206,6 +208,7 @@ def build_env(reward_type, ghost_offset=0, clip_name='CMU_016_22', start_step=0,
         ghost_offset=ghost_offset,
         force_magnitude=force_magnitude,
         disable_observables=disable_observables,
+        walker_as_ghost=walker_as_ghost
     )
     env = composer.Environment(
         task=task,

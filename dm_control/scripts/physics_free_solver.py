@@ -8,6 +8,7 @@ from dm_control.locomotion.walkers import cmu_humanoid
 from dm_control.locomotion.arenas import floors
 from dm_control.locomotion.tasks.reference_pose import tracking, types
 from dm_control.locomotion.mocap import cmu_mocap_data
+from dm_control.locomotion.tasks.reference_pose.utils import set_walker
 
 from solver import log_flags
 
@@ -36,8 +37,10 @@ def physics_free_step(env, pos, quat, joint, change=False):
         pos = pos + old_pos
         quat = quat + old_quat
         joint = joint + old_joint
-    walker.set_pose(env.physics, position=pos, quaternion=quat)
-    env.physics.bind(walker.mocap_joints).qpos = joint
+    #walker.set_pose(env.physics, position=pos, quaternion=quat)
+    #env.physics.bind(walker.mocap_joints).qpos = joint
+    act = np.concatenate([pos, quat, joint])
+    set_walker(env.physics, walker, qpos=act, qvel=np.zeros(act.shape[0]-1))
 
     reward = env.task.get_reward(env.physics)
     #observation = env.task.get_observation(env.physics)
@@ -62,7 +65,8 @@ def build_tasks(clip_names):
         ref_path=cmu_mocap_data.get_path_for_cmu_2020(),
         dataset=types.ClipCollection(ids=clip_names),
         ref_steps=(1, 2, 3, 4, 5),
-        always_init_at_clip_start=True
+        always_init_at_clip_start=True,
+        walker_as_ghost=True
     )
     return tasks
 
