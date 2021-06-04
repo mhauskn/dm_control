@@ -7,7 +7,7 @@ from dm_control import viewer
 from dm_control.viewer import application
 from dm_control.locomotion.tasks.reference_pose.utils import set_walker
 from dataset import OBS_KEYS
-from physics_free_utils import get_observation
+from physics_free_utils import get_observation, include_pose_and_joints
 from collections import deque
 from absl import flags, logging, app
 import glob
@@ -44,12 +44,6 @@ def build_observation(time_step, observables):
     full_obs = np.concatenate(feats, axis=1)
     return full_obs
 
-def include_pose_and_joints(env, time_step):
-    obs = time_step.observation
-    pos, quat = env.task._walker.get_pose(env.physics)
-    obs['walker/position'] = pos.copy()[np.newaxis]
-    obs['walker/quaternion'] = quat.copy()[np.newaxis]
-    obs['walker/joints'] = env.task._walker.observables.joints_pos(env.physics).copy()[np.newaxis]
 
 @torch.no_grad()
 def visualize(env, model, reference_actions, context_steps):
@@ -74,10 +68,11 @@ def visualize(env, model, reference_actions, context_steps):
             obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1)).to(device)
             act, _ = model(obs_tt)
             act = act.squeeze(0)[-1].cpu().numpy()
-            if FLAGS.physics_free and FLAGS.delta_action:
+            if FLAGS.physics_free:
                 obs = get_observation(env.task._walker, env.physics)
-                act += np.hstack([obs['walker/position'], obs['walker/quaternion'],
-                                  obs['walker/joints']])
+                act[:(3+4)] += np.hstack([obs['walker/position'], obs['walker/quaternion']])
+                if FLAGS.delta_action:
+                    act[(3+4):] += obs['walker/joints']
             viewer_app._status.set_policy_text('Network')
             is_ref = False
         else:
@@ -141,10 +136,11 @@ def run_episode(env, model, reference_actions, context_steps=0):
         obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1)).to(device)
         act, _ = model(obs_tt)
         act = act.squeeze(0)[-1].cpu().numpy() # (1,block_size,56) ==> (56,)
-        if FLAGS.physics_free and FLAGS.delta_action:
+        if FLAGS.physics_free:
             obs = get_observation(walker, env.physics)
-            act += np.hstack([obs['walker/position'], obs['walker/quaternion'],
-                              obs['walker/joints']])
+            act[:(3+4)] += np.hstack([obs['walker/position'], obs['walker/quaternion']])
+            if FLAGS.delta_action:
+                act[(3+4):] += obs['walker/joints']
         time_step = env.step(act)
         J += time_step.reward
         episode_steps += 1
@@ -172,10 +168,11 @@ def run_episode_with_reference_actions(env, model, reference_actions):
             obs_tt = torch.FloatTensor(np.stack(obs_queue, axis=1)).to(device)
             act, _ = model(obs_tt)
             act = act.squeeze(0)[-1].cpu().numpy()
-            if FLAGS.physics_free and FLAGS.delta_action:
+            if FLAGS.physics_free:
                 obs = get_observation(walker, env.physics)
-                act += np.hstack([obs['walker/position'], obs['walker/quaternion'],
-                                  obs['walker/joints']])
+                act[:(3+4)] += np.hstack([obs['walker/position'], obs['walker/quaternion']])
+                if FLAGS.delta_action:
+                    act[(3+4):] += obs['walker/joints']
             mse_loss = np.mean((ref_act - act)**2)
             norms.append(mse_loss)
             obs_queue.popleft()
