@@ -9,6 +9,7 @@ from absl import flags
 from absl import logging
 from solver import build_env, evaluate
 from physics_free_solver import build_tasks
+from physics_free_utils import include_pose_and_joints
 from tqdm import tqdm
 
 # This script processes saved actions sequences into a (state, action)
@@ -70,6 +71,7 @@ def extract_data(job_dir):
         start_step=start_step,
         termination_error_threshold=TERMINATION_ERROR_THRESHOLD,
         disable_observables=False,
+        physics_free=FLAGS.physics_free,
     )
     # Jfin = evaluate(env, actions)
     # if not math.isclose(Jfin, expected_JFin, abs_tol=.001):
@@ -84,30 +86,18 @@ def extract_data(job_dir):
         logging.debug(f'Detected early termination: {stdout_path}')
         return None, None
 
-def physics_free_extract_data(job_dir):
-    try:
-        actions = np.load(pjoin(job_dir, 'opt_acts_0.npy'))
-    except:
-        raise
-
-    clip_name = osp.basename(osp.normpath(job_dir))
-    tasks = build_tasks([clip_name])
-    traj = tasks._all_clips[0]
-    observations = {k: v.astype(np.float32) for k, v in traj.as_dict().items()}
-    if FLAGS.delta_action:
-        prev = np.concatenate([observations['walker/position'],
-                               observations['walker/quaternion'],
-                               observations['walker/joints']],
-                              axis=1)
-        actions -= prev[:-1]
-
-    return observations, actions
-
 def run_episode(env, actions):
     """ Runs the episode, recording the observations and actions.
         Returns: Success (boolean), observations, actions.
     """
     time_step = env.reset()
+    include_pose_and_joints(env, time_step)
+
+    # Get initial configuration to take delta
+    init_pos = time_step.observation['walker/position']
+    init_quat = time_step.observation['walker/quaternion']
+    init_joints = time_step.observation['walker/joints']
+
     observables = {key: [] for key, v in time_step.observation.items() if v.size > 0}
     J = 0
     for idx, act in enumerate(actions):
@@ -119,6 +109,7 @@ def run_episode(env, actions):
                     features = features[:, np.newaxis]
                 observables[k].append(features)
         time_step = env.step(act)
+        include_pose_and_joints(env, time_step)
         J += time_step.reward
         if env._task._termination_error >= TERMINATION_ERROR_THRESHOLD:
             return False, J, None, None
@@ -126,6 +117,14 @@ def run_episode(env, actions):
             break
     concat_obs = { k: np.concatenate(v) for k,v in observables.items() }
     concat_act = np.array(actions[:idx+1], dtype=np.float32, copy=True)
+    if FLAGS.physics_free:
+        pos = np.vstack([init_pos, concat_obs['walker/position']])
+        quat = np.vstack([init_quat, concat_obs['walker/quaternion']])
+        concat_act[:, :3] -= pos[:-1]
+        concat_act[:, 3:(3+4)] -= quat[:-1]
+        if FLAGS.delta_action:
+            joints = np.vstack([init_joints, concat_obs['walker/joints']])
+            concat_act[:, (3+4):] -= joints[:-1]
     return True, J, concat_obs, concat_act
 
 def check_for_finished_jobs(input_dirs):
@@ -151,7 +150,7 @@ def create_physics_free_dataset():
     pbar = tqdm(finished_jobs)
     for job_dir in pbar:
         pbar.set_description(f"{job_dir}")
-        observations, actions = physics_free_extract_data(job_dir)
+        observations, actions = extract_data(job_dir)
         dones = np.zeros((len(actions)), dtype=np.bool)
         dones[-1] = True
         all_observations.append(observations)
