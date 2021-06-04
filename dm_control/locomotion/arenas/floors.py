@@ -28,7 +28,7 @@ class Floor(composer.Arena):
 
   def _build(self, size=(8, 8), reflectance=.2, aesthetic='default',
              name='floor', top_camera_y_padding_factor=1.1,
-             top_camera_distance=100):
+             top_camera_distance=100, no_contact=False):
     super()._build(name=name)
     self._size = size
     self._top_camera_y_padding_factor = top_camera_y_padding_factor
@@ -73,13 +73,16 @@ class Floor(composer.Arena):
           reflectance=reflectance,
           texture=self._ground_texture)
 
-    # Build groundplane.
-    self._ground_geom = self._mjcf_root.worldbody.add(
-        'geom',
-        type='plane',
-        name='groundplane',
-        material=self._ground_material,
-        size=list(size) + [_GROUNDPLANE_QUAD_SIZE])
+    # Build groundplane, if desired.
+    if no_contact:
+      self._ground_geom = None
+    else:
+      self._ground_geom = self._mjcf_root.worldbody.add(
+          'geom',
+          type='plane',
+          name='groundplane',
+          material=self._ground_material,
+          size=list(size) + [_GROUNDPLANE_QUAD_SIZE])
 
     # Choose the FOV so that the floor always fits nicely within the frame
     # irrespective of actual floor size.
