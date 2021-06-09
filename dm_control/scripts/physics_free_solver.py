@@ -44,13 +44,14 @@ def main(_):
     tasks = build_tasks(clip_names=FLAGS.clip_names)
 
     # Iterate through given clips, making one directory per clip.
-    for clip, name in zip(tasks._all_clips, FLAGS.clip_names):
+    for clip, name in zip(tasks._all_clips, tasks._dataset.ids):
         logging.info(name)
         optimized_actions = get_actions(clip)
         fname = "opt_acts_0.npy"
         if not osp.exists(osp.join(OUTPUT_DIR, name)):
             os.makedirs(osp.join(OUTPUT_DIR, name))
         np.save(osp.join(OUTPUT_DIR, name, fname), optimized_actions)
+        np.save(osp.join(DATA_DIR, name + '_start_step_0.npy'), optimized_actions)
 
         # Needed so that `create_dataset.py` runs
         with open(osp.join(OUTPUT_DIR, name, 'stdout.txt'), 'w+') as f:
