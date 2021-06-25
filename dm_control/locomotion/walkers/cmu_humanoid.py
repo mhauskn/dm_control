@@ -418,6 +418,13 @@ class CMUHumanoidPositionControlled(CMUHumanoid):
     """
     return (2 * target_pose[self.actuator_order] - self._offset) / self._scale
 
+  def actuation_to_cmu_pose(self, actuation):
+    """
+    Inverse of `cmu_pose_to_actuation`.
+    """
+    pose_reordered = (self._scale * actuation + self._offset) / 2
+    return pose_reordered[self.actuator_to_joint_order]
+
 
 class CMUHumanoidPositionControlledV2020(CMUHumanoidPositionControlled):
   """A 2020 updated CMU humanoid walker; includes nose for head orientation."""
