@@ -626,7 +626,11 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
 
     if self._physics_free:
       qvel = np.zeros(self._action.shape[0]-1)
-      utils.set_walker(physics, self._walker, qpos=self._action, qvel=qvel)
+      offset = self._walker._offset[self._walker.actuator_to_joint_order]
+      scale = self._walker._scale[self._walker.actuator_to_joint_order]
+      qpos = np.copy(self._action)
+      qpos[7:] = self._walker.actuation_to_cmu_pose(qpos[7:])
+      utils.set_walker(physics, self._walker, qpos=qpos, qvel=qvel)
       mjlib.mj_kinematics(physics.model.ptr, physics.data.ptr)
 
     self._walker_features_prev = self._walker_features.copy()
