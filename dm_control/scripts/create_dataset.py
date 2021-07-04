@@ -8,8 +8,7 @@ from absl import app
 from absl import flags
 from absl import logging
 from solver import build_env, evaluate
-from physics_free_solver import build_tasks
-from physics_free_utils import include_pose_and_joints
+from physics_free_utils import include_pose
 from tqdm import tqdm
 
 # This script processes saved actions sequences into a (state, action)
@@ -21,8 +20,6 @@ FLAGS = flags.FLAGS
 flags.DEFINE_list("input_dirs", ".", "List of directories to gather actions from.")
 flags.DEFINE_string("output_path", "trajectory_dataset.hdf5", "Output file for the dataset.")
 flags.DEFINE_boolean("physics_free", False, "Whether to supress the physics of the domain")
-flags.DEFINE_boolean("delta_action", False, "Whether the target action is change in observables")
-
 TERMINATION_ERROR_THRESHOLD=0.3
 
 def parse_clip_name(stdout_file):
@@ -91,12 +88,11 @@ def run_episode(env, actions):
         Returns: Success (boolean), observations, actions.
     """
     time_step = env.reset()
-    include_pose_and_joints(env, time_step)
+    include_pose(env, time_step)
 
     # Get initial configuration to take delta
     init_pos = time_step.observation['walker/position']
     init_quat = time_step.observation['walker/quaternion']
-    init_joints = time_step.observation['walker/joints']
 
     observables = {key: [] for key, v in time_step.observation.items() if v.size > 0}
     J = 0
@@ -109,7 +105,7 @@ def run_episode(env, actions):
                     features = features[:, np.newaxis]
                 observables[k].append(features)
         time_step = env.step(act)
-        include_pose_and_joints(env, time_step)
+        include_pose(env, time_step)
         J += time_step.reward
         if env._task._termination_error >= TERMINATION_ERROR_THRESHOLD:
             return False, J, None, None
@@ -117,14 +113,6 @@ def run_episode(env, actions):
             break
     concat_obs = { k: np.concatenate(v) for k,v in observables.items() }
     concat_act = np.array(actions[:idx+1], dtype=np.float32, copy=True)
-    if FLAGS.physics_free:
-        pos = np.vstack([init_pos, concat_obs['walker/position']])
-        quat = np.vstack([init_quat, concat_obs['walker/quaternion']])
-        concat_act[:, :3] -= pos[:-1]
-        concat_act[:, 3:(3+4)] -= quat[:-1]
-        if FLAGS.delta_action:
-            joints = np.vstack([init_joints, concat_obs['walker/joints']])
-            concat_act[:, (3+4):] -= joints[:-1]
     return True, J, concat_obs, concat_act
 
 def check_for_finished_jobs(input_dirs):
@@ -144,47 +132,6 @@ def check_for_finished_jobs(input_dirs):
     return finished_jobs, failed_jobs
 
 
-def create_physics_free_dataset():
-    all_observations, all_actions, all_dones = [], [], []
-    finished_jobs, failed_jobs = check_for_finished_jobs(FLAGS.input_dirs)
-    pbar = tqdm(finished_jobs)
-    for job_dir in pbar:
-        pbar.set_description(f"{job_dir}")
-        observations, actions = extract_data(job_dir)
-        dones = np.zeros((len(actions)), dtype=np.bool)
-        dones[-1] = True
-        all_observations.append(observations)
-        all_actions.append(actions)
-        all_dones.append(dones)
-
-    for job_dir in failed_jobs:
-        logging.info(f"[Failed Job] {job_dir}")
-
-    # Concatenate everything
-    all_actions_np = np.concatenate(all_actions)
-    all_dones_np = np.concatenate(all_dones)
-    tmp = {k: [] for k in all_observations[0].keys()}
-    for obs_dict in all_observations:
-        for k, v in obs_dict.items():
-            tmp[k].append(v)
-    all_observations_np = {k: np.concatenate(v) for k, v in tmp.items()}
-
-    # Write the dataset to a hdf5 file
-    f = h5py.File(FLAGS.output_path, "w")
-    act_dset = f.create_dataset('actions', all_actions_np.shape, all_actions_np.dtype)
-    act_dset[...] = all_actions_np
-    done_dset = f.create_dataset('dones', all_dones_np.shape, all_dones_np.dtype)
-    done_dset[...] = all_dones_np
-    grp = f.create_group('observables')
-    for k, v in all_observations_np.items():
-        dset = grp.create_dataset(k, v.shape, v.dtype)
-        dset[...] = v
-    logging.info(f"[Finished!] Jobs: "
-                 f"{len(finished_jobs)}/{len(finished_jobs)+len(failed_jobs)} successful")
-    logging.info(f"Action Shape: {all_actions_np.shape}")
-    for k, v in all_observations_np.items():
-        logging.info(f"Observation {k} Shape: {v.shape}")
-
 def create_dataset(argv):
     """ To create a dataset:
 
@@ -196,9 +143,6 @@ def create_dataset(argv):
     4) Save the dataset.
 
     """
-    if FLAGS.physics_free:
-        create_physics_free_dataset()
-        return
     all_observations, all_actions, all_dones = [], [], []
     early_terminations = []
     finished_jobs, failed_jobs = check_for_finished_jobs(FLAGS.input_dirs)

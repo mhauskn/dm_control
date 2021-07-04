@@ -36,7 +36,6 @@ OBS_KEYS = [
     # For physics-free
     'walker/position',
     'walker/quaternion',
-    'walker/joints',
 ]
 
 class TrajectoryDataset(Dataset):
