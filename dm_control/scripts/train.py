@@ -7,8 +7,8 @@ from dataset import TrajectoryDataset
 from evaluate import comprehensive_eval
 from absl import flags, logging, app
 
-OUTPUT_DIR = os.environ.get('PT_OUTPUT_DIR', '.')
-DATA_DIR = os.environ.get('PT_DATA_DIR', 'data')
+OUTPUT_DIR = os.environ.get('AMLT_OUTPUT_DIR', '.')
+DATA_DIR = os.environ.get('AMLT_DATA_DIR', 'data')
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string("checkpoint_path", 'saved_model.pt', 'Path to save model checkpoints')

@@ -38,8 +38,8 @@ mjlib = mjbindings.mjlib
 
 TERMINATION_ERROR_THRESHOLD = 0.3
 
-OUTPUT_DIR = os.environ.get('PT_OUTPUT_DIR', '.')
-DATA_DIR = os.environ.get('PT_DATA_DIR', '.')
+OUTPUT_DIR = os.environ.get('AMLT_OUTPUT_DIR', '.')
+DATA_DIR = os.environ.get('AMLT_DATA_DIR', '.')
 
 CustomInit = namedtuple('CustomInit', ['start_step', 'physics_data'])
 
