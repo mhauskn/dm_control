@@ -39,7 +39,7 @@ def _spec_to_box(spec):
 class LocomotionWrapper(core.Env):
     def __init__(
         self,
-        ref_steps=(1,), #(1,2,3,4,5),
+        ref_steps=(1,2,3,4,5),
         dataset=None,
         task_kwargs=None,
         environment_kwargs=None,
