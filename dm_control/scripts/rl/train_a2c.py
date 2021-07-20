@@ -16,6 +16,7 @@ from wrappers import LocomotionWrapper
 
 FLAGS = flags.FLAGS
 flags.DEFINE_string("clip_name", "CMU_016_22", "Name of reference clip. See cmu_subsets.py")
+flags.DEFINE_string("log_root", "logs", "Directory where logs are stored")
 flags.DEFINE_float("learning_rate", 1e-4, "Step size for A2C")
 flags.DEFINE_integer("n_workers", 16, "Number of workers")
 flags.DEFINE_integer("n_steps", 64, "Number of steps per worker per update")
@@ -67,7 +68,7 @@ def log_flags(flags):
 
 def main(_):
     log_flags(FLAGS)
-    log_dir = osp.join('logs', FLAGS.clip_name, str(FLAGS.seed))
+    log_dir = osp.join(FLAGS.log_root, FLAGS.clip_name, str(FLAGS.seed))
     Path(osp.join(log_dir, 'train')).mkdir(parents=True, exist_ok=True)
     Path(osp.join(log_dir, 'eval/model')).mkdir(parents=True, exist_ok=True)
 
