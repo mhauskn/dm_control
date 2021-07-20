@@ -71,7 +71,7 @@ def main(_):
     Path(osp.join(log_dir, 'train')).mkdir(parents=True, exist_ok=True)
     Path(osp.join(log_dir, 'eval/model')).mkdir(parents=True, exist_ok=True)
 
-    logger = configure(log_dir, ['stdout', 'csv', 'tensorboard', 'log'])
+    logger = configure(log_dir, ['stdout', 'csv', 'log'])
 
     env = VecMonitor(SubprocVecEnv([make_env(i) for i in range(FLAGS.n_workers)]),
                      osp.join(log_dir, 'train'))
