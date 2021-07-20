@@ -15,6 +15,8 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from absl import logging
+import numpy as np
+from torch.distributions.normal import Normal
 
 class GPTConfig:
     """ base GPT config, params common to all GPT versions """
@@ -109,6 +111,88 @@ class Block(nn.Module):
         x = x + self.mlp(self.ln2(x))
         return x
 
+
+class GaussianHead(nn.Module):
+
+    def __init__(self, input_dim, act_dim):
+        super().__init__()
+        log_std = -0.5 * np.ones(act_dim, dtype=np.float32)
+        self.log_std_layer = torch.nn.Parameter(torch.as_tensor(log_std))
+        self.mu_layer = nn.Linear(input_dim, act_dim, bias=False)
+
+    def _distribution(self, x):
+        mu = self.mu_layer(x)
+        std = torch.exp(self.log_std_layer)
+        return Normal(mu, std)
+
+    def _log_prob_from_distribution(self, pi, act):
+        return pi.log_prob(act).sum(axis=-1)    # Last axis sum needed for Torch Normal distribution
+
+    def forward(self, x, act=None, deterministic=True):
+        # Produce action distributions for given observations, and 
+        # optionally compute the log likelihood of given actions under
+        # those distributions.
+        pi = self._distribution(x)
+        logp_a = None
+        if deterministic:
+            pi_action = pi.mean
+        else:
+            pi_action = pi.rsample()
+        if act is not None:
+            logp_a = self._log_prob_from_distribution(pi, act)
+        else:
+            logp_a = self._log_prob_from_distribution(pi, pi_action)
+        return pi, pi_action, logp_a
+
+
+LOG_STD_MAX = 2
+LOG_STD_MIN = -20
+
+class SquashedGaussianHead(nn.Module):
+
+    def __init__(self, input_dim, act_dim, act_limit):
+        super().__init__()
+        self.mu_layer = nn.Linear(input_dim, act_dim, bias=False)
+        self.log_std_layer = nn.Linear(input_dim, act_dim, bias=False)
+        self.act_limit = act_limit
+
+
+    def forward(self, obs, act=None, deterministic=False, with_logprob=True):
+        mu = self.mu_layer(obs)
+        log_std = self.log_std_layer(obs)
+        log_std = torch.clamp(log_std, LOG_STD_MIN, LOG_STD_MAX)
+        std = torch.exp(log_std)
+
+        # Pre-squash distribution and sample
+        pi_distribution = Normal(mu, std)
+
+        if act is None:
+            if deterministic:
+                # Only used for evaluating policy at test time.
+                pi_action = mu
+            else:
+                pi_action = pi_distribution.rsample()
+        else:
+            pi_action = act
+
+        if with_logprob:
+            # Compute logprob from Gaussian, and then apply correction for Tanh squashing.
+            # NOTE: The correction formula is a little bit magic. To get an understanding 
+            # of where it comes from, check out the original SAC paper (arXiv 1801.01290) 
+            # and look in appendix C. This is a more numerically-stable equivalent to Eq 21.
+            # Try deriving it yourself as a (very difficult) exercise. :)
+            logp_pi = pi_distribution.log_prob(pi_action).sum(axis=-1)
+            logp_pi -= (2*(np.log(2) - pi_action - F.softplus(-2*pi_action))).sum(axis=-1)
+        else:
+            logp_pi = None
+
+        if act is None:
+            pi_action = torch.tanh(pi_action)
+            pi_action = self.act_limit * pi_action
+
+        return pi_action, logp_pi
+
+
 class GPT(nn.Module):
     """  the full GPT language model, with a context size of block_size """
 
@@ -124,7 +208,8 @@ class GPT(nn.Module):
         self.blocks = nn.Sequential(*[Block(config) for _ in range(config.n_layer)])
         # decoder head
         self.ln_f = nn.LayerNorm(config.n_embd)
-        self.head = nn.Linear(config.n_embd, config.action_size, bias=False)
+        # self.head = nn.Linear(config.n_embd, config.action_size, bias=False)
+        self.head = SquashedGaussianHead(config.n_embd, config.action_size, act_limit=1)
 
         self.block_size = config.block_size
         self.observables = config.observables
@@ -202,13 +287,15 @@ class GPT(nn.Module):
         x = self.drop(token_embeddings + position_embeddings)
         x = self.blocks(x)
         x = self.ln_f(x)
-        logits = self.head(x)
+        # logits = self.head(x)
+        logits, logp_a = self.head(x, act=targets, deterministic=True)
 
         # if we are given some desired targets also calculate the loss
         loss = None
         if targets is not None:
-            loss = self.criterion(logits, targets)
+            # loss = self.criterion(logits, targets)
             # loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+            loss = -logp_a
 
         return logits, loss
 
@@ -268,3 +355,31 @@ class FFNet(nn.Module):
             loss = self.criterion(logits, targets)
 
         return logits, loss
+
+
+class ActorCritic(nn.Module):
+    """ The default Actor-Critic network used in Stable Baselines. """
+    def __init__(self, obs_size, action_size, hidden_size=64):
+        super().__init__()
+        self.policy_net = nn.Sequential(
+            nn.Linear(obs_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+        )
+        self.value_net = nn.Sequential(
+            nn.Linear(obs_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, 1)
+        )
+        self.policy_head = GaussianHead(hidden_size, action_size)
+
+        logging.info("%s number of parameters: %e", self.__class__.__name__, sum(p.numel() for p in self.parameters()))       
+
+    def forward(self, x, act=None, deterministic=False):
+        value = self.value_net(x)
+        z = self.policy_net(x)
+        pi, act, logp_a = self.policy_head(z, act=act, deterministic=deterministic)
+        return pi, act, value.squeeze(), logp_a
