@@ -18,3 +18,4 @@ requests==2.24.0
 scipy==1.5.4
 setuptools!=50.0.0
 tqdm==4.47.0
+stable-baselines3==1.1.0
