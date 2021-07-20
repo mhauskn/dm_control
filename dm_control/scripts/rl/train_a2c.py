@@ -6,9 +6,10 @@ from absl import app, flags, logging
 
 from stable_baselines3 import A2C
 from stable_baselines3.common.callbacks import EvalCallback
+from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.logger import configure
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
-from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor, DummyVecEnv, VecNormalize
+from stable_baselines3.common.vec_env import SubprocVecEnv, VecMonitor, VecNormalize
 
 from callbacks import SaveVecNormalizeCallback
 from wrappers import LocomotionWrapper
@@ -66,24 +67,24 @@ def log_flags(flags):
 
 def main(_):
     log_flags(FLAGS)
-    log_dir = osp.join('logs', FLAGS.clip_name, ) # TODO
+    log_dir = osp.join('logs', FLAGS.clip_name, str(FLAGS.seed))
     Path(osp.join(log_dir, 'train')).mkdir(parents=True, exist_ok=True)
     Path(osp.join(log_dir, 'eval/model')).mkdir(parents=True, exist_ok=True)
 
     logger = configure(log_dir, ['stdout', 'csv', 'tensorboard', 'log'])
 
-    env = VecMonitor(SubprocVecEnv([make_env(i) for i in range(FLAGS.n_cpu)]),
+    env = VecMonitor(SubprocVecEnv([make_env(i) for i in range(FLAGS.n_workers)]),
                      osp.join(log_dir, 'train'))
     env = VecNormalize(env, gamma=FLAGS.gamma)
     eval_env = VecMonitor(SubprocVecEnv([make_env(i, start_step=0) for i in
-                                         range(FLAGS.n_cpu)]),
+                                         range(FLAGS.n_workers)]),
                           osp.join(log_dir, 'eval'))
     eval_env = VecNormalize(eval_env, training=False, gamma=FLAGS.gamma)
 
     model_path = osp.join(log_dir, 'eval/model')
     save_vec_normalize = SaveVecNormalizeCallback(save_freq=1, save_path=model_path)
     eval_callback = EvalCallback(eval_env, best_model_save_path=model_path,
-                                 log_path=osp.join(LOG_DIR, 'eval'), eval_freq=int(1e3),
+                                 log_path=osp.join(log_dir, 'eval'), eval_freq=int(1e3),
                                  callback_on_new_best=save_vec_normalize,
                                  n_eval_episodes=1, deterministic=True, render=False)
 
@@ -98,6 +99,10 @@ def main(_):
                 verbose=1, device='cpu')
     model.set_logger(logger)
     model.learn(int(1e8), callback=eval_callback)
+
+    mean_reward, _ = evaluate_policy(model, model.get_env(), n_eval_episodes=20)
+    print(mean_reward)
+    return mean_reward
 
 if __name__ == '__main__':
     app.run(main)
