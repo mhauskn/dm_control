@@ -215,9 +215,10 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
     self._current_clip_index = 0
     self._current_clip = self._loader.get_trajectory(
         self._dataset.ids[0], zero_out_velocities=False)
-    assert self._start_step < self._current_clip.end_step, \
-      "start_step {} exceeds length of clip {}".format(
-        self._start_step, self._dataset.ids[0])
+    if self._start_step is not None:
+      assert self._start_step < self._current_clip.end_step, \
+        "start_step {} exceeds length of clip {}".format(
+          self._start_step, self._dataset.ids[0])
 
     # Create the environment.
     self._arena = arena
@@ -636,9 +637,10 @@ class ReferencePosesTask(composer.Task, metaclass=abc.ABCMeta):
       logging.debug('End of mocap.')
       return True
 
-    if self._time_step - self._start_step >= self._max_steps:
-      logging.debug('Max steps reached.')
-      return True
+    if self._start_step is not None:
+      if self._time_step - self._start_step >= self._max_steps:
+        logging.debug('Max steps reached.')
+        return True
 
     return False
 
